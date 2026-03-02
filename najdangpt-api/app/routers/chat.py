@@ -4,15 +4,17 @@ NOW USES USERNAME-BASED HISTORY (syncs across all devices)
 INCLUDES: 20 messages/day hard limit for regular users, unlimited for Creator
 FIXED: History scoped by session_id to prevent cross-mode context bleed
 ADDED: Image analysis via base64 image in chat request
+MIGRATED: From Gemini to Groq (Llama 3.3 70B) - fully free, no Google dependency
 """
 
 import logging
+import os
 import base64
 from datetime import datetime, timedelta
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import func
-import google.generativeai as genai
+from openai import OpenAI
 
 from app.database import get_db
 from app.schemas.chat import ChatRequest
@@ -29,16 +31,23 @@ from app.services import retrieve_relevant_context, search_web
 from app.services.memory import get_conversation_memory
 from app.services.therapist_kb import get_therapist_knowledge_context
 from app.prompts import get_system_prompt
-from app.config import MODEL_NAME, GOOGLE_API_KEY
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/chat", tags=["Chat"])
 
-# Configure Gemini
-genai.configure(api_key=GOOGLE_API_KEY)
+# Configure Groq client
+GROQ_API_KEY = os.environ.get("GROQ_API_KEY", "")
+groq_client = OpenAI(
+    base_url="https://api.groq.com/openai/v1",
+    api_key=GROQ_API_KEY
+)
+
+# Model selection
+GROQ_MODEL = "llama-3.3-70b-versatile"
+GROQ_VISION_MODEL = "llama-3.2-90b-vision-preview"
 
 # Daily message limit for regular users
-DAILY_MESSAGE_LIMIT = 20
+DAILY_MESSAGE_LIMIT = 10
 
 # Max image size: 4MB base64 (roughly 3MB actual image)
 MAX_IMAGE_SIZE = 4 * 1024 * 1024
@@ -86,12 +95,10 @@ def check_daily_limit(db: Session, username: str, is_creator: bool):
 
 def detect_image_mime(base64_data: str) -> str:
     """Detect image MIME type from base64 data"""
-    # Handle data URI prefix (e.g., "data:image/png;base64,...")
     if base64_data.startswith("data:"):
         mime = base64_data.split(";")[0].split(":")[1]
         return mime
     
-    # Detect from raw base64 by decoding first bytes
     try:
         raw = base64.b64decode(base64_data[:32])
         if raw[:8] == b'\x89PNG\r\n\x1a\n':
@@ -105,7 +112,7 @@ def detect_image_mime(base64_data: str) -> str:
     except Exception:
         pass
     
-    return "image/jpeg"  # Default fallback
+    return "image/jpeg"
 
 
 def clean_base64(base64_data: str) -> str:
@@ -188,7 +195,7 @@ async def chat_message(request: ChatRequest, db: Session = Depends(get_db)):
     # Validate image if provided
     has_image = False
     image_mime = None
-    image_bytes = None
+    image_b64 = None
     
     if request.image:
         image_mime = detect_image_mime(request.image)
@@ -198,9 +205,10 @@ async def chat_message(request: ChatRequest, db: Session = Depends(get_db)):
             raise HTTPException(status_code=400, detail="Image too large. Maximum 4MB.")
         
         try:
-            image_bytes = base64.b64decode(clean_b64)
+            base64.b64decode(clean_b64)
+            image_b64 = clean_b64
             has_image = True
-            logger.info(f"🖼️ Image attached: {image_mime}, {len(image_bytes)} bytes")
+            logger.info(f"🖼️ Image attached: {image_mime}, {len(clean_b64)} chars base64")
         except Exception:
             raise HTTPException(status_code=400, detail="Invalid image data")
     
@@ -242,38 +250,22 @@ Their preferences: {memory['preferences']}
             logger.info(f"✅ Therapist KB: Loaded professional knowledge")
     
     # FIXED: Get conversation history BY SESSION_ID (not username)
-    # This prevents wellness conversations from bleeding into default mode
     history_messages = db.query(Message)\
         .filter_by(session_id=session_id)\
         .order_by(Message.timestamp.desc())\
         .limit(20)\
         .all()
     
-    conversation_history = []
+    # Build OpenAI-compatible message format for Groq
+    messages = [
+        {"role": "system", "content": system_prompt}
+    ]
+    
     for msg in reversed(history_messages):
-        conversation_history.append({
-            "role": "user" if msg.role == "user" else "model",
-            "parts": [msg.content]
+        messages.append({
+            "role": "user" if msg.role == "user" else "assistant",
+            "content": msg.content
         })
-    
-    # Build the current user message parts (text + optional image)
-    user_parts = []
-    
-    if has_image:
-        # Add image as inline data for Gemini vision
-        user_parts.append({
-            "inline_data": {
-                "mime_type": image_mime,
-                "data": clean_base64(request.image)
-            }
-        })
-    
-    user_parts.append(request.message)
-    
-    conversation_history.append({
-        "role": "user",
-        "parts": user_parts
-    })
     
     # Check if web search might be needed
     search_keywords = ['latest', 'current', 'recent', 'today', 'now', 'news', 'price', 'stock', 'weather', 
@@ -285,27 +277,41 @@ Their preferences: {memory['preferences']}
         search_result = search_web(request.message)
         if search_result:
             system_prompt += f"\n\nLive web search results:\n{search_result}\n\nUse this information to answer. Don't say you can't access real-time data."
+            # Update system message with search results
+            messages[0]["content"] = system_prompt
             logger.info(f"✅ Web search: Added results to context")
     
+    # Build the current user message
+    if has_image:
+        # Use vision model for image analysis
+        user_content = [
+            {
+                "type": "image_url",
+                "image_url": {
+                    "url": f"data:{image_mime};base64,{image_b64}"
+                }
+            },
+            {
+                "type": "text",
+                "text": request.message
+            }
+        ]
+        messages.append({"role": "user", "content": user_content})
+        model_to_use = GROQ_VISION_MODEL
+    else:
+        messages.append({"role": "user", "content": request.message})
+        model_to_use = GROQ_MODEL
+    
     try:
-        model = genai.GenerativeModel(MODEL_NAME)
-        
-        # System prompt as first exchange
-        full_conversation = [
-            {"role": "user", "parts": [system_prompt]},
-            {"role": "model", "parts": ["Understood."]},
-        ] + conversation_history
-        
-        response = model.generate_content(
-            full_conversation,
-            generation_config=genai.GenerationConfig(
-                temperature=0.7,
-                top_p=0.95,
-                top_k=40,
-                max_output_tokens=8192,
-            )
+        response = groq_client.chat.completions.create(
+            model=model_to_use,
+            messages=messages,
+            temperature=0.7,
+            top_p=0.95,
+            max_tokens=8192,
         )
-        response_text = response.text
+        
+        response_text = response.choices[0].message.content
         
         # Save messages (store text only, not the image)
         saved_content = request.message
@@ -331,7 +337,7 @@ Their preferences: {memory['preferences']}
         # Get remaining messages for response
         remaining = "unlimited" if is_creator else max(0, DAILY_MESSAGE_LIMIT - get_daily_message_count(db, username))
         
-        logger.info(f"✅ Response: {len(response_text)} chars | Remaining: {remaining} | Image: {has_image}")
+        logger.info(f"✅ Response: {len(response_text)} chars | Remaining: {remaining} | Image: {has_image} | Model: {model_to_use}")
         
         return {
             "response": response_text,
