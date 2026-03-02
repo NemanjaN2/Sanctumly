@@ -291,7 +291,7 @@ export default function ChatPage({ user, onLogout }) {
     setSpeakingMessageIndex(messageIndex)
 
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'https://najdangpt-api-952437293193.us-central1.run.app'}/speech/tts`, {
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'https://sanctumly-production.up.railway.app'}/speech/tts`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -423,7 +423,7 @@ export default function ChatPage({ user, onLogout }) {
       const formData = new FormData()
       formData.append('file', audioBlob, 'audio.webm')
       
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'https://najdangpt-api-952437293193.us-central1.run.app'}/speech/transcribe`, {
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'https://sanctumly-production.up.railway.app'}/speech/transcribe`, {
         method: 'POST',
         body: formData
       })
@@ -537,7 +537,7 @@ export default function ChatPage({ user, onLogout }) {
       const extension = audioBlob.type.includes('mp4') ? 'mp4' : 'webm'
       formData.append('file', audioBlob, `audio.${extension}`)
       
-      const transcribeResponse = await fetch(`${import.meta.env.VITE_API_URL || 'https://najdangpt-api-952437293193.us-central1.run.app'}/speech/transcribe`, {
+      const transcribeResponse = await fetch(`${import.meta.env.VITE_API_URL || 'https://sanctumly-production.up.railway.app'}/speech/transcribe`, {
         method: 'POST',
         body: formData
       })
@@ -584,7 +584,7 @@ export default function ChatPage({ user, onLogout }) {
 
   const speakResponse = async (text) => {
     try {
-      const response = await fetch(`${import.meta.env.VITE_API_URL || 'https://najdangpt-api-952437293193.us-central1.run.app'}/speech/tts`, {
+      const response = await fetch(`${import.meta.env.VITE_API_URL || 'https://sanctumly-production.up.railway.app'}/speech/tts`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
