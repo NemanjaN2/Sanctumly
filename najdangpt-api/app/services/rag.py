@@ -2,23 +2,37 @@
 RAG (Retrieval Augmented Generation) service
 Embeddings, chunking, and context retrieval
 """
-
 import json
 import logging
+import os
+import requests
 import numpy as np
 from sqlalchemy.orm import Session
-from vertexai.language_models import TextEmbeddingModel
 from app.models.document import UserDocument
 
 logger = logging.getLogger(__name__)
 
+GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "")
+
 
 def generate_embedding(text: str):
-    """Generate embedding using Vertex AI"""
+    """Generate embedding using free Gemini Embedding API"""
     try:
-        model = TextEmbeddingModel.from_pretrained("text-embedding-005")
-        embeddings = model.get_embeddings([text])
-        return embeddings[0].values
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent?key={GOOGLE_API_KEY}"
+        payload = {
+            "model": "models/gemini-embedding-001",
+            "content": {
+                "parts": [{"text": text}]
+            }
+        }
+        response = requests.post(url, json=payload, timeout=30)
+        
+        if response.status_code != 200:
+            logger.error(f"⚠️ Embedding API error {response.status_code}: {response.text}")
+            return None
+        
+        data = response.json()
+        return data["embedding"]["values"]
     except Exception as e:
         logger.error(f"⚠️ Embedding error: {e}")
         return None
