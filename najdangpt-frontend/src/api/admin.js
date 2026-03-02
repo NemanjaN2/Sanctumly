@@ -1,4 +1,4 @@
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080'
+const API_URL = import.meta.env.VITE_API_URL || 'https://sanctumly-production.up.railway.app'
 
 export async function getSettings() {
   const response = await fetch(`${API_URL}/admin/settings`, {
