@@ -7,7 +7,7 @@ import logging
 from datetime import datetime
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from google.cloud import aiplatform
+
 
 from app.config import (
     ALLOWED_ORIGINS,
@@ -51,8 +51,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize Vertex AI
-aiplatform.init(project=PROJECT_ID, location=LOCATION)
 
 # Register routers
 app.include_router(auth.router)
