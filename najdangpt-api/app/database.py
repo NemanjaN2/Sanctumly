@@ -1,31 +1,28 @@
 """
-NajdanGPT Database Configuration
+Sanctumly Database Configuration
 SQLAlchemy engine, session management, and Base class
 """
-
+import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
-from app.config import INSTANCE_CONNECTION_NAME, DB_USER, DB_PASS, DB_NAME
 
 Base = declarative_base()
 
-
 def get_db_engine():
-    """Create database engine - PostgreSQL on Cloud SQL or SQLite locally"""
-    if INSTANCE_CONNECTION_NAME:
-        connection_string = (
-            f"postgresql+pg8000://{DB_USER}:{DB_PASS}@/{DB_NAME}"
-            f"?unix_sock=/cloudsql/{INSTANCE_CONNECTION_NAME}/.s.PGSQL.5432"
-        )
-    else:
-        connection_string = "sqlite:///./najdangpt.db"
+    """Create database engine - uses DATABASE_URL from Railway or falls back to SQLite"""
+    database_url = os.environ.get("DATABASE_URL")
     
-    return create_engine(connection_string, pool_pre_ping=True)
-
+    if database_url:
+        # Railway provides postgresql:// but SQLAlchemy needs postgresql+psycopg2://
+        # pg8000 works without psycopg2
+        if database_url.startswith("postgresql://"):
+            database_url = database_url.replace("postgresql://", "postgresql+pg8000://", 1)
+        return create_engine(database_url, pool_pre_ping=True)
+    else:
+        return create_engine("sqlite:///./najdangpt.db", pool_pre_ping=True)
 
 engine = get_db_engine()
 SessionLocal = sessionmaker(bind=engine)
-
 
 def get_db():
     """Dependency for FastAPI routes - yields DB session"""
@@ -34,7 +31,6 @@ def get_db():
         yield db
     finally:
         db.close()
-
 
 def init_db():
     """Create all tables"""
