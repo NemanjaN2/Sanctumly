@@ -1,0 +1,40 @@
+# NajdanGPT API Dependencies
+
+# Web Framework
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+
+# Database
+sqlalchemy==2.0.25
+pg8000==1.30.4
+
+# Google Cloud
+google-generativeai==0.3.2
+google-cloud-aiplatform==1.38.1
+google-cloud-speech==2.24.0
+
+# Security
+bcrypt==4.1.2
+
+# Document Processing
+PyPDF2==3.0.1
+python-docx==1.1.0
+openpyxl==3.1.2
+xlrd==2.0.1
+ebooklib==0.18
+beautifulsoup4==4.12.3
+
+# Data Processing
+numpy==1.26.3
+scipy==1.12.0
+pandas==2.2.0
+
+# Web Search
+duckduckgo-search==4.1.1
+
+# Multipart uploads
+python-multipart==0.0.6
+
+# Pydantic (data validation)
+pydantic==2.5.3
+google-cloud-texttospeech==2.16.0
