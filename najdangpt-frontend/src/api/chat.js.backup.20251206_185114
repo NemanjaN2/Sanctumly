@@ -1,0 +1,37 @@
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8080'
+
+export async function sendMessage(message, sessionId,username,  personality = 'default') {
+  const response = await fetch(`${API_URL}/chat/message`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ message, session_id: sessionId,username: username,  personality }),
+  })
+
+  if (!response.ok) {
+    throw new Error('Failed to send message')
+  }
+
+  return response.json()
+}
+
+export async function getChatHistory(sessionId, limit = 50) {
+  const response = await fetch(`${API_URL}/chat/history/${sessionId}?limit=${limit}`)
+
+  if (!response.ok) {
+    throw new Error('Failed to load chat history')
+  }
+
+  return response.json()
+}
+
+export async function clearChat(sessionId) {
+  const response = await fetch(`${API_URL}/chat/clear/${sessionId}`, {
+    method: 'DELETE',
+  })
+
+  if (!response.ok) {
+    throw new Error('Failed to clear chat')
+  }
+
+  return response.json()
+}

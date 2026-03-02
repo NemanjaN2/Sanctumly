@@ -1,0 +1,308 @@
+import { useState, useEffect, useRef } from 'react'
+import { Link } from 'react-router-dom'
+import { sendMessage, getChatHistory, clearChat } from '../api/chat'
+import { uploadDocument } from '../api/upload'
+
+export default function ChatPage({ user, onLogout }) {
+  const [messages, setMessages] = useState([])
+  const [input, setInput] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [personality, setPersonality] = useState('default')
+  const [sessionId] = useState(() => `session_${Date.now()}`)
+  const [uploading, setUploading] = useState(false)
+  const [uploadedFiles, setUploadedFiles] = useState([])
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const messagesEndRef = useRef(null)
+  const fileInputRef = useRef(null)
+
+  const personalities = [
+    { value: 'default', label: '🤖 Default - Balanced assistant' },
+    { value: 'professor', label: '🎓 Professor - Academic expert' },
+    { value: 'analyst', label: '💼 Business Analyst - Data-driven' },
+    { value: 'architect', label: '🛠️ Technical Architect - System design' },
+    { value: 'casual', label: '😄 Casual - Friendly & relaxed' },
+    { value: 'concise', label: '⚡ Concise - Brief & direct' },
+  ]
+
+  // Add cybersecurity mode ONLY for creator
+  if (user.is_creator) {
+    personalities.push({ 
+      value: 'hacker', 
+      label: '🔴 Cybersecurity Agent - Pentesting & Hacking' 
+    })
+  }
+
+  // Lock body scroll when sidebar opens
+  useEffect(() => {
+    if (sidebarOpen) {
+      document.body.classList.add('sidebar-open')
+    } else {
+      document.body.classList.remove('sidebar-open')
+    }
+    
+    return () => {
+      document.body.classList.remove('sidebar-open')
+    }
+  }, [sidebarOpen])
+
+  useEffect(() => {
+    scrollToBottom()
+  }, [messages])
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }
+
+  const handleSend = async () => {
+    if (!input.trim() || loading) return
+
+    const userMessage = {
+      role: 'user',
+      content: input,
+      timestamp: new Date().toISOString(),
+    }
+
+    setMessages((prev) => [...prev, userMessage])
+    setInput('')
+    setLoading(true)
+
+    try {
+      const response = await sendMessage(input, sessionId, user.username, personality)
+      
+      const assistantMessage = {
+        role: 'assistant',
+        content: response.response,
+        timestamp: new Date().toISOString(),
+      }
+
+      setMessages((prev) => [...prev, assistantMessage])
+    } catch (err) {
+      console.error('Failed to send message:', err)
+      const errorMessage = {
+        role: 'assistant',
+        content: 'Sorry, something went wrong. Please try again.',
+        timestamp: new Date().toISOString(),
+      }
+      setMessages((prev) => [...prev, errorMessage])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleClearChat = async () => {
+    if (confirm('Clear all messages?')) {
+      try {
+        await clearChat(sessionId)
+        setMessages([])
+      } catch (err) {
+        console.error('Failed to clear chat:', err)
+      }
+    }
+  }
+
+  const handleFileUpload = async (event) => {
+    const file = event.target.files[0]
+    if (!file) return
+
+    setUploading(true)
+    try {
+      const result = await uploadDocument(file, sessionId)
+      setUploadedFiles(prev => [...prev, result.filename])
+      alert(`✅ Uploaded ${result.filename} (${result.chunks} chunks processed with RAG)`)
+    } catch (err) {
+      console.error('Upload failed:', err)
+      alert('❌ Upload failed. Please try again.')
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+    }
+  }
+
+  const handleKeyPress = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleSend()
+    }
+  }
+
+  const handlePersonalityChange = (value) => {
+    setPersonality(value)
+    setSidebarOpen(false)
+  }
+
+  return (
+    <div className="flex h-screen">
+      {/* Sidebar Overlay */}
+      {sidebarOpen && (
+        <div 
+          className="sidebar-overlay"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      {/* Sidebar */}
+      <div className={`sidebar ${sidebarOpen ? 'sidebar-open' : ''}`}>
+        <div className="sidebar-header">
+          <h2 className="text-xl font-bold gradient-text">Menu</h2>
+          <button 
+            onClick={() => setSidebarOpen(false)}
+            className="sidebar-close"
+            aria-label="Close menu"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="sidebar-content">
+          {/* User Info */}
+          <div className="sidebar-section">
+            <div className="text-sm text-text-secondary mb-2">Logged in as:</div>
+            <div className="text-text-primary font-semibold">
+              {user.username}
+              {user.is_creator && <span className="ml-2">🔥</span>}
+              {user.is_admin && <span className="ml-2">👑</span>}
+            </div>
+          </div>
+
+          {/* AI Agents */}
+          <div className="sidebar-section">
+            <div className="text-sm text-text-secondary mb-3">AI Agents:</div>
+            <div className="space-y-2">
+              {personalities.map((p) => (
+                <button
+                  key={p.value}
+                  onClick={() => handlePersonalityChange(p.value)}
+                  className={`agent-button ${personality === p.value ? 'agent-button-active' : ''}`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div className="sidebar-section">
+            {user.is_admin && (
+              <Link to="/admin" className="sidebar-link">
+                ⚙️ Admin Panel
+              </Link>
+            )}
+            <button onClick={handleClearChat} className="sidebar-link">
+              🗑️ Clear Chat
+            </button>
+            <button onClick={onLogout} className="sidebar-link sidebar-link-danger">
+              🚪 Logout
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* Main Content */}
+      <div className="flex-1 flex flex-col">
+        {/* Header */}
+        <div className="glass-heavy p-4 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <button 
+              onClick={() => setSidebarOpen(true)}
+              className="hamburger-button"
+              aria-label="Open menu"
+            >
+              ☰
+            </button>
+            <h1 className="text-2xl font-bold gradient-text">NajdanGPT</h1>
+            <div className="text-sm text-text-secondary">
+              {personalities.find(p => p.value === personality)?.label.split(' - ')[0] || '🤖'}
+            </div>
+          </div>
+        </div>
+
+        {/* Messages */}
+        <div className="flex-1 overflow-y-auto p-6 space-y-4">
+          {messages.map((msg, idx) => (
+            <div
+              key={idx}
+              className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+            >
+              <div className={`message ${msg.role === 'user' ? 'message-user' : 'message-assistant'}`}>
+                <div className="whitespace-pre-wrap">{msg.content}</div>
+                <div className="text-xs opacity-60 mt-2">
+                  {new Date(msg.timestamp).toLocaleTimeString()}
+                </div>
+              </div>
+            </div>
+          ))}
+
+          {loading && (
+            <div className="flex justify-start">
+              <div className="message message-assistant">
+                <div className="typing-indicator">
+                  <div className="typing-dot"></div>
+                  <div className="typing-dot"></div>
+                  <div className="typing-dot"></div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          <div ref={messagesEndRef} />
+        </div>
+
+        {/* Input Area */}
+        <div className="glass-heavy p-6">
+          {uploadedFiles.length > 0 && (
+            <div className="mb-3 text-sm text-text-secondary">
+              📚 {uploadedFiles.length} document(s) uploaded: {uploadedFiles.join(', ')}
+            </div>
+          )}
+
+          <div className="flex gap-3">
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileUpload}
+              accept=".txt,.pdf"
+              style={{ display: 'none' }}
+            />
+            <button 
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+              className="btn btn-secondary"
+              title="Upload document (PDF/TXT)"
+            >
+              {uploading ? '⏳' : '📁'}
+            </button>
+            <textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyPress={handleKeyPress}
+              placeholder="Message NajdanGPT..."
+              className="input flex-1 resize-none"
+              rows="2"
+            />
+            <button className="btn btn-secondary" title="Voice input">
+              🎤
+            </button>
+            <button
+              onClick={handleSend}
+              disabled={loading || !input.trim()}
+              className="btn btn-primary px-8"
+            >
+              ➤
+            </button>
+          </div>
+
+          <div className="flex gap-2 mt-4">
+            <button className="btn btn-secondary text-sm">
+              Export MD
+            </button>
+            <button className="btn btn-secondary text-sm">
+              Export JSON
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}

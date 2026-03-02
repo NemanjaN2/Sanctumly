@@ -1,0 +1,451 @@
+import { useState, useEffect, useRef } from 'react'
+import { Link } from 'react-router-dom'
+import { sendMessage, clearChat } from '../api/chat'
+import { uploadDocument } from '../api/upload'
+
+export default function ChatPage({ user, onLogout }) {
+  const [messages, setMessages] = useState([])
+  const [input, setInput] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [personality, setPersonality] = useState('default')
+  const [sessionId] = useState(() => `session_${Date.now()}`)
+  const [uploading, setUploading] = useState(false)
+  const [uploadProgress, setUploadProgress] = useState(0)
+  const [uploadedFiles, setUploadedFiles] = useState([])
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [error, setError] = useState('')
+  const [success, setSuccess] = useState('')
+  const messagesEndRef = useRef(null)
+  const fileInputRef = useRef(null)
+
+  const personalities = [
+    { value: 'default', label: 'Default - Balanced assistant' },
+    { value: 'professor', label: 'Professor - Academic expert' },
+    { value: 'analyst', label: 'Business Analyst - Data-driven' },
+    { value: 'architect', label: 'Technical Architect - System design' },
+    { value: 'casual', label: 'Casual - Friendly & relaxed' },
+    { value: 'concise', label: 'Concise - Brief & direct' },
+  ]
+
+  if (user.is_creator) {
+    personalities.push({ 
+      value: 'hacker', 
+      label: 'Cybersecurity Agent - Pentesting & Hacking'
+    })
+  }
+
+  const suggestionPrompts = [
+    { icon: '💡', text: 'Help me brainstorm ideas', prompt: 'Help me brainstorm creative ideas for my project' },
+    { icon: '📚', text: 'Explain a concept', prompt: 'Explain quantum computing in simple terms' },
+    { icon: '🔍', text: 'Analyze my document', prompt: 'Analyze the document I uploaded and summarize key points' },
+    { icon: '💻', text: 'Write some code', prompt: 'Write a Python script to process CSV files' },
+  ]
+
+  useEffect(() => {
+    if (sidebarOpen) {
+      document.body.classList.add('sidebar-open')
+    } else {
+      document.body.classList.remove('sidebar-open')
+    }
+    return () => document.body.classList.remove('sidebar-open')
+  }, [sidebarOpen])
+
+  useEffect(() => {
+    scrollToBottom()
+  }, [messages])
+
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => setError(''), 5000)
+      return () => clearTimeout(timer)
+    }
+  }, [error])
+
+  useEffect(() => {
+    if (success) {
+      const timer = setTimeout(() => setSuccess(''), 3000)
+      return () => clearTimeout(timer)
+    }
+  }, [success])
+
+  const scrollToBottom = () => {
+    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }
+
+  const handleSend = async (messageText = null) => {
+    const textToSend = messageText || input
+    if (!textToSend.trim() || loading) return
+
+    const userMessage = {
+      role: 'user',
+      content: textToSend,
+      timestamp: new Date().toISOString(),
+    }
+
+    setMessages((prev) => [...prev, userMessage])
+    setInput('')
+    setLoading(true)
+    setError('')
+
+    try {
+      const response = await sendMessage(textToSend, sessionId, user.username, personality)
+      
+      const assistantMessage = {
+        role: 'assistant',
+        content: response.response,
+        timestamp: new Date().toISOString(),
+      }
+
+      setMessages((prev) => [...prev, assistantMessage])
+    } catch (err) {
+      console.error('Failed to send message:', err)
+      setError('Failed to send message. Please try again.')
+      
+      const errorMessage = {
+        role: 'assistant',
+        content: 'Sorry, I encountered an error. Please try again.',
+        timestamp: new Date().toISOString(),
+      }
+      setMessages((prev) => [...prev, errorMessage])
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const handleSuggestionClick = (prompt) => {
+    handleSend(prompt)
+  }
+
+  const handleClearChat = async () => {
+    if (confirm('Clear all messages? This cannot be undone.')) {
+      try {
+        await clearChat(sessionId)
+        setMessages([])
+        setSuccess('Chat cleared successfully!')
+      } catch (err) {
+        console.error('Failed to clear chat:', err)
+        setError('Failed to clear chat. Please try again.')
+      }
+    }
+  }
+
+  const handleFileUpload = async (event) => {
+    const file = event.target.files[0]
+    if (!file) return
+
+    if (file.size > 10 * 1024 * 1024) {
+      setError('File too large. Maximum size is 10MB.')
+      return
+    }
+
+    setUploading(true)
+    setUploadProgress(0)
+    setError('')
+
+    const progressInterval = setInterval(() => {
+      setUploadProgress(prev => {
+        if (prev >= 90) {
+          clearInterval(progressInterval)
+          return 90
+        }
+        return prev + 10
+      })
+    }, 200)
+
+    try {
+      const result = await uploadDocument(file, sessionId)
+      clearInterval(progressInterval)
+      setUploadProgress(100)
+      
+      setUploadedFiles(prev => [...prev, result.filename])
+      setSuccess(`✓ Uploaded ${result.filename}`)
+      
+      setTimeout(() => {
+        setUploadProgress(0)
+      }, 1000)
+    } catch (err) {
+      clearInterval(progressInterval)
+      console.error('Upload failed:', err)
+      setError(`Failed to upload ${file.name}. Please try again.`)
+      setUploadProgress(0)
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) {
+        fileInputRef.current.value = ''
+      }
+    }
+  }
+
+  const handleKeyPress = (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleSend()
+    }
+  }
+
+  const handlePersonalityChange = (value) => {
+    setPersonality(value)
+    setSidebarOpen(false)
+    setSuccess(`Switched to ${personalities.find(p => p.value === value)?.label.split(' - ')[0]}`)
+  }
+
+  const currentPersonality = personalities.find(p => p.value === personality)
+
+  return (
+    <div className="flex h-screen">
+      {sidebarOpen && (
+        <div 
+          className="sidebar-overlay"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      <div className={`sidebar ${sidebarOpen ? 'sidebar-open' : ''}`}>
+        <div className="sidebar-header">
+          <h2 className="text-xl font-bold gradient-text">Menu</h2>
+          <button 
+            onClick={() => setSidebarOpen(false)}
+            className="sidebar-close"
+            aria-label="Close menu"
+          >
+            ✕
+          </button>
+        </div>
+
+        <div className="sidebar-content">
+          <div className="sidebar-section">
+            <div className="text-sm text-text-secondary mb-2">Logged in as:</div>
+            <div className="text-text-primary font-semibold">
+              {user.username}
+              {user.is_creator && <span className="ml-2">🔥</span>}
+              {user.is_admin && <span className="ml-2">👑</span>}
+            </div>
+          </div>
+
+          <div className="sidebar-section">
+            <div className="text-sm text-text-secondary mb-3">AI Agents:</div>
+            <div className="space-y-2">
+              {personalities.map((p) => (
+                <button
+                  key={p.value}
+                  onClick={() => handlePersonalityChange(p.value)}
+                  className={`agent-button ${personality === p.value ? 'agent-button-active' : ''}`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="sidebar-section">
+            {user.is_admin && (
+              <Link to="/admin" className="sidebar-link">
+                Admin Panel
+              </Link>
+            )}
+            <button onClick={handleClearChat} className="sidebar-link">
+              Clear Chat
+            </button>
+            <button onClick={onLogout} className="sidebar-link sidebar-link-danger">
+              Logout
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex-1 flex flex-col">
+        <div className="glass-heavy p-4 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <button 
+              onClick={() => setSidebarOpen(true)}
+              className="hamburger-button tooltip"
+              aria-label="Open menu"
+              data-tooltip="Menu"
+            >
+              ☰
+            </button>
+            <h1 className="text-2xl font-bold gradient-text">NajdanGPT</h1>
+            <div className="text-sm text-text-secondary hidden sm:inline">
+              {currentPersonality?.label.split(' - ')[0]}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto p-6">
+          <div style={{ 
+            maxWidth: '700px', 
+            margin: '0 auto',
+            width: '100%'
+          }}>
+              {error && (
+                <div className="error-message mb-4">
+                  <span className="error-icon">⚠️</span>
+                  <span>{error}</span>
+                </div>
+              )}
+
+              {success && (
+                <div className="success-message mb-4">
+                  <span className="error-icon">✓</span>
+                  <span>{success}</span>
+                </div>
+              )}
+
+            {messages.length === 0 ? (
+              <div className="empty-state">
+                <img 
+                  src="/logo.png" 
+                  alt="NajdanGPT" 
+                  style={{ 
+                    height: '80px',
+                    width: 'auto',
+                    objectFit: 'contain',
+                    marginBottom: '1.5rem',
+                    filter: 'drop-shadow(0 0 20px rgba(139, 92, 246, 0.3))',
+                    animation: 'logoFloat 3s ease-in-out infinite'
+                  }}
+                />
+                <h2 className="empty-state-title">Welcome to NajdanGPT!</h2>
+                <p className="empty-state-subtitle">
+                  Start a conversation or try one of these suggestions
+                </p>
+                <div className="empty-state-suggestions">
+                  {suggestionPrompts.map((suggestion, idx) => (
+                    <div
+                      key={idx}
+                      className="suggestion-card"
+                      onClick={() => handleSuggestionClick(suggestion.prompt)}
+                    >
+                      <div className="suggestion-icon">{suggestion.icon}</div>
+                      <div className="suggestion-text">{suggestion.text}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-4">
+                {messages.map((msg, idx) => (
+                  <div
+                    key={idx}
+                    className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
+                  >
+                    <div className={`message ${msg.role === 'user' ? 'message-user' : 'message-assistant'}`}>
+                      <div className="whitespace-pre-wrap">{msg.content}</div>
+                      <div className="text-xs opacity-60 mt-2">
+                        {new Date(msg.timestamp).toLocaleTimeString()}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+
+                {loading && (
+                  <div className="flex justify-start">
+                    <div className="message message-assistant">
+                      <div className="typing-indicator">
+                        <div className="typing-dot"></div>
+                        <div className="typing-dot"></div>
+                        <div className="typing-dot"></div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+            <div ref={messagesEndRef} />
+          </div>
+        </div>
+
+        <div className="glass-heavy p-6">
+          <div style={{ 
+            maxWidth: '700px', 
+            margin: '0 auto',
+            width: '100%'
+          }}>
+            {uploadedFiles.length > 0 && (
+              <div className="mb-3 text-sm text-text-secondary">
+                📎 {uploadedFiles.length} document(s) uploaded
+              </div>
+            )}
+
+            {uploading && uploadProgress > 0 && (
+              <div className="upload-progress mb-3">
+                <div className="progress-bar">
+                  <div 
+                    className="progress-fill" 
+                    style={{ width: `${uploadProgress}%` }}
+                  />
+                </div>
+                <div className="text-xs text-text-secondary mt-1">
+                  Uploading... {uploadProgress}%
+                </div>
+              </div>
+            )}
+
+            <div className="flex gap-2 items-end">
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={handleFileUpload}
+                accept=".txt,.pdf,.docx,.xlsx,.xls,.csv,.epub"
+                style={{ display: 'none' }}
+              />
+              
+              <button 
+                onClick={() => fileInputRef.current?.click()}
+                disabled={uploading}
+                className="btn btn-secondary btn-icon tooltip"
+                data-tooltip="Attach file (PDF, TXT, Word, Excel, CSV, EPUB)"
+                style={{ marginBottom: 0 }}
+              >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/>
+                </svg>
+              </button>
+
+              <div className="flex-1 relative">
+                <textarea
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyPress={handleKeyPress}
+                  placeholder="Message NajdanGPT..."
+                  className="input resize-none pr-12"
+                  rows="1"
+                  disabled={loading}
+                  style={{
+                    minHeight: '44px',
+                    maxHeight: '200px',
+                    paddingRight: '3rem'
+                  }}
+                />
+                <button
+                  onClick={() => handleSend()}
+                  disabled={loading || !input.trim()}
+                  className="btn btn-primary btn-icon"
+                  style={{
+                    position: 'absolute',
+                    right: '4px',
+                    bottom: '4px',
+                    width: '36px',
+                    height: '36px',
+                    padding: '6px'
+                  }}
+                >
+                  {loading ? '...' : <img src="/send-icon.png" alt="Send" style={{ width: '20px', height: '20px', filter: 'brightness(0) invert(1)' }} />}
+                </button>
+              </div>
+
+              <button 
+                className="btn btn-secondary btn-icon tooltip" 
+                data-tooltip="Voice input"
+                disabled
+                style={{ marginBottom: 0 }}
+              >
+                <img src="/voice-icon.png" alt="Voice" style={{ width: '20px', height: '20px' }} />
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}

@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/png" href="/logo.png" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    
+    <!-- Primary Meta Tags -->
+    <title>NajdanGPT - Legendary AI Assistant</title>
+    <meta name="title" content="NajdanGPT - Legendary AI Assistant" />
+    <meta name="description" content="Intelligent AI assistant created by Nemanja Najdanovic with RAG, Memory, and Multi-file support" />
+    
+    <!-- iOS PWA Meta Tags -->
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="NajdanGPT" />
+    
+    <!-- Android PWA Meta Tags -->
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="application-name" content="NajdanGPT" />
+    
+    <!-- Theme Color (Both) -->
+    <meta name="theme-color" content="#1e293b" />
+    <meta name="msapplication-TileColor" content="#8b5cf6" />
+    
+    <!-- iOS App Icons -->
+    <link rel="apple-touch-icon" sizes="180x180" href="/180.png" />
+    <link rel="apple-touch-icon" sizes="120x120" href="/120.png" />
+    
+    <!-- Android/Chrome Icons (handled by manifest.json) -->
+    <link rel="icon" type="image/png" sizes="192x192" href="/180.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="/1024.png" />
+    
+    <!-- Favicon -->
+    <link rel="icon" type="image/png" sizes="64x64" href="/logo.png" />
+    
+    <!-- Manifest -->
+    <link rel="manifest" href="/manifest.json" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+    
+    <!-- Service Worker Registration -->
+    <script>
+      if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js')
+            .then(reg => console.log('✅ Service Worker registered'))
+            .catch(err => console.log('❌ SW registration failed:', err));
+        });
+      }
+      
+      // Android PWA Install Prompt
+      let deferredPrompt;
+      
+      window.addEventListener('beforeinstallprompt', (e) => {
+        // Prevent Chrome 67 and earlier from automatically showing the prompt
+        e.preventDefault();
+        // Stash the event so it can be triggered later
+        deferredPrompt = e;
+        console.log('✅ PWA install prompt available');
+        
+        // Optionally, you can show your own install button here
+        // For now, we'll let Chrome show it automatically after user engagement
+      });
+      
+      window.addEventListener('appinstalled', () => {
+        console.log('✅ PWA was installed');
+        deferredPrompt = null;
+      });
+    </script>
+  </body>
+</html>

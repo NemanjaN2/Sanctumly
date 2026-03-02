@@ -1,0 +1,223 @@
+import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
+import { login, signup } from '../api/auth'
+
+export default function LoginPage({ onLogin }) {
+  const [isLogin, setIsLogin] = useState(true)
+  const [username, setUsername] = useState('')
+  const [password, setPassword] = useState('')
+  const [email, setEmail] = useState('')
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+  const navigate = useNavigate()
+
+  const handleSubmit = async (e) => {
+    e.preventDefault()
+    setError('')
+    setLoading(true)
+
+    try {
+      let response
+      if (isLogin) {
+        response = await login(username, password)
+      } else {
+        response = await signup(username, password, email)
+      }
+
+      if (response.success) {
+        onLogin(response.user)
+        navigate('/chat')
+      }
+    } catch (err) {
+      setError(err.message || 'Authentication failed. Please try again.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div 
+      className="min-h-screen flex items-center justify-center p-4"
+      style={{ 
+        background: 'linear-gradient(135deg, #0f172a 0%, #1a2332 100%)',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center'
+      }}
+    >
+      <div 
+        className="glass-heavy rounded-2xl"
+        style={{
+          width: '100%',
+          maxWidth: '400px',
+          padding: '2rem',
+          margin: '0 auto'
+        }}
+      >
+        {/* Logo */}
+        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '1rem' }}>
+          <img 
+            src="/logo.png" 
+            alt="NajdanGPT Logo" 
+            style={{ 
+              height: '64px',
+              width: 'auto',
+              objectFit: 'contain',
+              filter: 'drop-shadow(0 0 15px rgba(139, 92, 246, 0.3))',
+              animation: 'logoGlow 3s ease-in-out infinite'
+            }}
+          />
+        </div>
+
+        {/* Title */}
+        <h1 style={{ 
+          fontSize: '1.5rem', 
+          fontWeight: 'bold', 
+          textAlign: 'center', 
+          marginBottom: '0.25rem' 
+        }}>
+          <span className="gradient-text">NajdanGPT</span>
+        </h1>
+        <p style={{ 
+          textAlign: 'center', 
+          color: '#94a3b8', 
+          fontSize: '0.875rem',
+          marginBottom: '1.5rem'
+        }}>
+          Your Legendary AI Assistant
+        </p>
+
+        {/* Toggle */}
+        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem' }}>
+          <button
+            onClick={() => setIsLogin(true)}
+            className={isLogin ? 'btn btn-primary' : 'btn btn-secondary'}
+            style={{ 
+              flex: 1, 
+              padding: '0.625rem 1rem',
+              fontSize: '0.875rem',
+              fontWeight: '600'
+            }}
+          >
+            Login
+          </button>
+          <button
+            onClick={() => setIsLogin(false)}
+            className={!isLogin ? 'btn btn-primary' : 'btn btn-secondary'}
+            style={{ 
+              flex: 1, 
+              padding: '0.625rem 1rem',
+              fontSize: '0.875rem',
+              fontWeight: '600'
+            }}
+          >
+            Sign Up
+          </button>
+        </div>
+
+        {/* Error */}
+        {error && (
+          <div className="error-message" style={{ marginBottom: '1rem' }}>
+            <span className="error-icon">⚠️</span>
+            <span>{error}</span>
+          </div>
+        )}
+
+        {/* Form */}
+        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+          <div>
+            <label style={{ 
+              display: 'block', 
+              fontSize: '0.75rem', 
+              fontWeight: '500',
+              color: '#94a3b8',
+              marginBottom: '0.5rem'
+            }}>
+              Username
+            </label>
+            <input
+              type="text"
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              className="input"
+              placeholder="Enter your username"
+              required
+              autoComplete="username"
+              style={{ fontSize: '0.875rem' }}
+            />
+          </div>
+
+          {!isLogin && (
+            <div>
+              <label style={{ 
+                display: 'block', 
+                fontSize: '0.75rem', 
+                fontWeight: '500',
+                color: '#94a3b8',
+                marginBottom: '0.5rem'
+              }}>
+                Email (optional)
+              </label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="input"
+                placeholder="your@email.com"
+                autoComplete="email"
+                style={{ fontSize: '0.875rem' }}
+              />
+            </div>
+          )}
+
+          <div>
+            <label style={{ 
+              display: 'block', 
+              fontSize: '0.75rem', 
+              fontWeight: '500',
+              color: '#94a3b8',
+              marginBottom: '0.5rem'
+            }}>
+              Password
+            </label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              className="input"
+              placeholder="Enter your password"
+              required
+              autoComplete={isLogin ? 'current-password' : 'new-password'}
+              style={{ fontSize: '0.875rem' }}
+            />
+          </div>
+
+          <button
+            type="submit"
+            disabled={loading}
+            className="btn btn-primary"
+            style={{
+              width: '100%',
+              padding: '0.75rem',
+              fontSize: '1rem',
+              marginTop: '0.5rem'
+            }}
+          >
+            {loading ? 'Please wait...' : isLogin ? 'Login' : 'Create Account'}
+          </button>
+        </form>
+      </div>
+
+      <style>{`
+        @keyframes logoGlow {
+          0%, 100% {
+            filter: drop-shadow(0 0 15px rgba(139, 92, 246, 0.3));
+          }
+          50% {
+            filter: drop-shadow(0 0 25px rgba(139, 92, 246, 0.5));
+          }
+        }
+      `}</style>
+    </div>
+  )
+}
