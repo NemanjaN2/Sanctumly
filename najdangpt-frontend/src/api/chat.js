@@ -1,4 +1,4 @@
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://najdangpt-api-952437293193.us-central1.run.app'
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://sanctumly-production.up.railway.app'
 
 export async function sendMessage(message, sessionId, username, personality = 'default', image = null) {
   try {
