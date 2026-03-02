@@ -8,18 +8,14 @@ from datetime import datetime
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-
 from app.config import (
     ALLOWED_ORIGINS,
-    PROJECT_ID,
-    LOCATION,
     SUPPORTED_FILE_TYPES,
     MAX_FILE_SIZE,
     SESSION_EXPIRY_DAYS,
 )
 from app.database import init_db, SessionLocal
 from app.models.account import Account
-from app.models.mood import MoodEntry
 from app.security import hash_password, cleanup_old_rate_limit_logs, cleanup_expired_sessions
 from app.routers import auth, chat, upload, memory, feedback, admin, speech, mood
 
@@ -51,7 +47,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 # Register routers
 app.include_router(auth.router)
 app.include_router(chat.router)
@@ -78,7 +73,6 @@ def initialize_father_account(db):
         db.commit()
         logger.info("✅ Created Father's account (bcrypt)")
     else:
-        # Update to bcrypt hash if needed
         if not father.password_hash.startswith('$2'):
             father.password_hash = hash_password('#Blessed!')
             db.commit()
@@ -112,6 +106,7 @@ async def root():
         "app": "Sanctumly API",
         "version": "8.0.0",
         "architecture": "Modular",
+        "ai_engine": "Groq (Llama 3.3 70B)",
         "features": [
             "Secure Sessions (server-generated)",
             "bcrypt Password Hashing",
