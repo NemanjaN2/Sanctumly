@@ -1271,9 +1271,16 @@ export default function ChatPage({ user, onLogout }) {
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
                 </button>
               </div>
-
               <div style={{ padding: '1.25rem' }}>
-                <a href="https://storage.googleapis.com/najdangpt-downloads/Sanctumly.app.zip" download style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.875rem', background: 'var(--bg-primary, #0d0d1a)', borderRadius: '0.5rem', textDecoration: 'none', marginBottom: '0.75rem' }}>
+                <a href="https://github.com/NemanjaN2/Sanctumly/releases/download/V2.0/Sanctumly-Win10.zip" download style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.875rem', background: 'var(--bg-primary, #0d0d1a)', borderRadius: '0.5rem', textDecoration: 'none', marginBottom: '0.75rem' }}>
+                  <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#d4af37" strokeWidth="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                  </div>
+                  <div style={{ flex: 1 }}><div style={{ fontWeight: 500, color: 'var(--text-primary, #fff)' }}>Win10/11 App</div><div style={{ fontSize: '0.75rem', color: 'var(--text-secondary, #888)' }}>Win 10/11</div></div>
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary, #888)" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                </a>
+              <div style={{ padding: '1.25rem' }}>
+                <a href="https://github.com/NemanjaN2/Sanctumly/releases/download/V2.0/Sanctumly.app.zip" download style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.875rem', background: 'var(--bg-primary, #0d0d1a)', borderRadius: '0.5rem', textDecoration: 'none', marginBottom: '0.75rem' }}>
                   <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#d4af37" strokeWidth="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
                   </div>
@@ -1281,7 +1288,7 @@ export default function ChatPage({ user, onLogout }) {
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary, #888)" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                 </a>
 
-                <a href="https://storage.googleapis.com/najdangpt-downloads/Sanctumly.ipa" download style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.875rem', background: 'var(--bg-primary, #0d0d1a)', borderRadius: '0.5rem', textDecoration: 'none', marginBottom: '0.75rem' }}>
+                <a href="https://github.com/NemanjaN2/Sanctumly/releases/download/V2.0/Sanctumly.ipa" download style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.875rem', background: 'var(--bg-primary, #0d0d1a)', borderRadius: '0.5rem', textDecoration: 'none', marginBottom: '0.75rem' }}>
                   <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="#d4af37"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
                   </div>
@@ -1289,7 +1296,7 @@ export default function ChatPage({ user, onLogout }) {
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary, #888)" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                 </a>
 
-                <a href="https://storage.googleapis.com/najdangpt-downloads/Sanctumly.apk" download style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.875rem', background: 'var(--bg-primary, #0d0d1a)', borderRadius: '0.5rem', textDecoration: 'none', marginBottom: '0.75rem' }}>
+                <a href="https://github.com/NemanjaN2/Sanctumly/releases/download/V2.0/Sanctumly.apk" download style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.875rem', background: 'var(--bg-primary, #0d0d1a)', borderRadius: '0.5rem', textDecoration: 'none', marginBottom: '0.75rem' }}>
                   <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="#d4af37"><path d="M17.6 9.48l1.84-3.18c.16-.31.04-.69-.26-.85-.29-.15-.65-.06-.83.22l-1.88 3.24a11.43 11.43 0 0 0-8.94 0L5.65 5.67c-.19-.28-.54-.37-.83-.22-.3.16-.42.54-.26.85l1.84 3.18C4.8 11.16 3.5 13.84 3.5 16.5h17c0-2.66-1.3-5.34-2.9-7.02zM7 14.5c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm10 0c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1z"/></svg>
                   </div>
