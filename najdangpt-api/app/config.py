@@ -9,7 +9,7 @@ GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "")  # kept for RAG embeddings only
 
 # Groq Model Config
-GROQ_MODEL = "llama-3.3-70b-versatile"
+GROQ_MODEL = "moonshotai/kimi-k2-instruct-0905"
 GROQ_VISION_MODEL = "llama-3.2-90b-vision-preview"
 
 # Database
@@ -25,8 +25,8 @@ MIN_USERNAME_LENGTH = 3
 SESSION_EXPIRY_DAYS = 30
 
 # Rate Limiting
-MAX_ACCOUNTS_PER_HOUR = 7
-MAX_MESSAGES_PER_HOUR = 30
+MAX_ACCOUNTS_PER_HOUR = 3
+MAX_MESSAGES_PER_HOUR = 20
 MAX_FAILED_LOGINS_PER_HOUR = 5
 
 # CORS - Allowed Origins (NO WILDCARD!)
