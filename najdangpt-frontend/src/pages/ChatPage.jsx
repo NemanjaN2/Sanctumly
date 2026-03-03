@@ -1279,7 +1279,7 @@ export default function ChatPage({ user, onLogout }) {
                   <div style={{ flex: 1 }}><div style={{ fontWeight: 500, color: 'var(--text-primary, #fff)' }}>Win10/11 App</div><div style={{ fontSize: '0.75rem', color: 'var(--text-secondary, #888)' }}>Win 10/11</div></div>
                   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--text-secondary, #888)" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
                 </a>
-              <div style={{ padding: '1.25rem' }}>
+
                 <a href="https://github.com/NemanjaN2/Sanctumly/releases/download/V2.0/Sanctumly.app.zip" download style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.875rem', background: 'var(--bg-primary, #0d0d1a)', borderRadius: '0.5rem', textDecoration: 'none', marginBottom: '0.75rem' }}>
                   <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
                     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#d4af37" strokeWidth="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
