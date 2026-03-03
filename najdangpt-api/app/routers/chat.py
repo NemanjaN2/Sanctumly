@@ -43,7 +43,7 @@ groq_client = OpenAI(
 )
 
 # Model selection
-GROQ_MODEL = "llama-3.3-70b-versatile"
+GROQ_MODEL = "moonshotai/kimi-k2-instruct-0905"
 GROQ_VISION_MODEL = "llama-3.2-90b-vision-preview"
 
 # Daily message limit for regular users
