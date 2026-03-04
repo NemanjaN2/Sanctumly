@@ -47,7 +47,7 @@ GROQ_MODEL = "moonshotai/kimi-k2-instruct-0905"
 GROQ_VISION_MODEL = "llama-3.2-90b-vision-preview"
 
 # Daily message limit for regular users
-DAILY_MESSAGE_LIMIT = 10
+DAILY_MESSAGE_LIMIT = 25
 
 # Max image size: 4MB base64 (roughly 3MB actual image)
 MAX_IMAGE_SIZE = 4 * 1024 * 1024
