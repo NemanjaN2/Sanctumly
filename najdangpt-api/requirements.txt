@@ -9,10 +9,6 @@ uvicorn[standard]==0.27.0
 sqlalchemy==2.0.25
 pg8000==1.30.4
 
-# Google Cloud
-google-generativeai==0.3.2
-google-cloud-aiplatform==1.38.1
-google-cloud-speech==2.24.0
 
 # Security
 bcrypt==4.1.2
@@ -38,4 +34,3 @@ python-multipart==0.0.6
 
 # Pydantic (data validation)
 pydantic==2.5.3
-google-cloud-texttospeech==2.16.0
