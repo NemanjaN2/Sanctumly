@@ -9,7 +9,7 @@ GROQ_API_KEY = os.environ.get("GROQ_API_KEY")
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "")  # kept for RAG embeddings only
 
 # Groq Model Config
-GROQ_MODEL = "moonshotai/kimi-k2-instruct-0905"
+GROQ_MODEL = "openai/gpt-oss-120b"
 GROQ_VISION_MODEL = "llama-3.2-90b-vision-preview"
 
 # Database
