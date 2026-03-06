@@ -1,6 +1,6 @@
 """
 Speech routes - Speech-to-Text and Text-to-Speech
-Uses Groq Whisper for transcription, edge-tts for Serbian TTS, Groq PlayAI for English TTS
+Uses Groq Whisper for transcription, edge-tts for Serbian TTS, Groq Orpheus for English TTS
 """
 import logging
 import base64
@@ -90,7 +90,7 @@ async def transcribe_audio(file: UploadFile = File(...)):
             return {
                 "success": True,
                 "transcript": transcript,
-                "confidence": 0.95  # Whisper doesn't return confidence, use high default
+                "confidence": 0.95
             }
 
         finally:
@@ -106,14 +106,15 @@ async def transcribe_audio(file: UploadFile = File(...)):
 
 
 async def _tts_edge(text: str, language: str) -> bytes:
-    """Generate TTS audio using edge-tts (supports Serbian and many languages, completely free)"""
+    """Generate TTS audio using edge-tts for Serbian (Croatian voice for better pronunciation)"""
     import edge_tts
 
-    # Female-only young voices
     if language.startswith("sr"):
-        voice = "sr-RS-SophieNeural"  # Young Serbian female
+        # Croatian female - same language family, much better Serbian pronunciation than SophieNeural
+        voice = "hr-HR-GabrijelaNeural"
     else:
-        voice = "en-US-AnaNeural"  # Young English female (child/young adult voice)
+        # Fallback English female if Groq fails
+        voice = "en-US-AriaNeural"
 
     tmp_path = tempfile.mktemp(suffix=".mp3")
     try:
@@ -131,64 +132,39 @@ async def _tts_edge(text: str, language: str) -> bytes:
 
 
 async def _tts_groq(text: str) -> bytes:
-    """Generate TTS audio using Groq Orpheus (English only, young female voice)"""
-    # Orpheus has a 200 char limit per request - chunk if needed
-    chunks = []
-    remaining = text
-    while remaining:
-        if len(remaining) <= 200:
-            chunks.append(remaining)
-            break
-        # Find a good break point (sentence end, comma, space)
-        cut = 200
-        for sep in ['. ', '! ', '? ', ', ', ' ']:
-            idx = remaining[:200].rfind(sep)
-            if idx > 50:  # Don't cut too short
-                cut = idx + len(sep)
-                break
-        chunks.append(remaining[:cut])
-        remaining = remaining[cut:]
-
-    all_audio = b""
-    for chunk in chunks:
-        response = groq_client.audio.speech.create(
-            model="canopylabs/orpheus-v1-english",
-            input=chunk,
-            voice="hannah",  # Young, energetic female voice
-            response_format="wav"
-        )
-        audio_bytes = response.read()
-        if all_audio:
-            # Skip WAV header (44 bytes) for subsequent chunks
-            all_audio += audio_bytes[44:]
-        else:
-            all_audio = audio_bytes
-
-    logger.info(f"🔊 Groq Orpheus: Generated {len(all_audio)} bytes ({len(chunks)} chunks) with voice hannah")
-    return all_audio
+    """Generate TTS audio using Groq Orpheus (English, mature female voice)"""
+    response = groq_client.audio.speech.create(
+        model="canopylabs/orpheus-v1-english",
+        input=text[:10000],
+        voice="autumn",
+        response_format="mp3"
+    )
+    audio_bytes = response.read()
+    logger.info(f"🔊 Groq Orpheus: Generated {len(audio_bytes)} bytes with voice autumn")
+    return audio_bytes
 
 
 @router.post("/tts")
 async def text_to_speech(request: TTSRequest):
-    """Convert text to speech - uses edge-tts for Serbian, Groq PlayAI for English"""
+    """Convert text to speech - uses edge-tts for Serbian, Groq Orpheus for English"""
     try:
         text = request.text[:5000] if len(request.text) > 5000 else request.text
 
         if request.language and request.language.startswith("sr"):
-            # Serbian: use edge-tts (free, supports Serbian)
+            # Serbian: use edge-tts with Croatian voice (better pronunciation)
             audio_bytes = await _tts_edge(text, request.language)
-            voice_used = "sr-RS-SophieNeural"
+            voice_used = "hr-HR-GabrijelaNeural"
             language_code = "sr-RS"
         else:
-            # English: try Groq Orpheus first, fall back to edge-tts
+            # English: Groq Orpheus first, fall back to edge-tts
             try:
                 audio_bytes = await _tts_groq(text)
-                voice_used = "orpheus-hannah"
+                voice_used = "orpheus-autumn"
                 language_code = "en-US"
             except Exception as e:
                 logger.warning(f"⚠️ Groq TTS failed, falling back to edge-tts: {e}")
                 audio_bytes = await _tts_edge(text, "en-US")
-                voice_used = "en-US-AnaNeural"
+                voice_used = "en-US-AriaNeural"
                 language_code = "en-US"
 
         audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
@@ -213,7 +189,7 @@ async def list_voices():
     """List available TTS voices"""
     return {
         "voices": [
-            {"code": "en-US", "name": "English (US)", "voice": "hannah (young female)", "engine": "Groq Orpheus / edge-tts"},
-            {"code": "sr-RS", "name": "Serbian", "voice": "Sophie (young female)", "engine": "edge-tts"},
+            {"code": "en-US", "name": "English (US)", "voice": "autumn (female)", "engine": "Groq Orpheus"},
+            {"code": "sr-RS", "name": "Serbian", "voice": "Gabrijela (female)", "engine": "edge-tts"},
         ]
     }
