@@ -73,7 +73,6 @@ export async function submitFeedback(messageContent, feedbackType, sessionId, us
 export async function getFeedbackStats() {
   try {
     const response = await fetch(`${API_BASE_URL}/feedback/stats`)
-    
     if (!response.ok) {
       throw new Error('Failed to get feedback stats')
     }
@@ -84,8 +83,6 @@ export async function getFeedbackStats() {
     throw error
   }
 }
-
-// ===== Chat History Functions =====
 
 export async function getConversations(username) {
   try {
@@ -112,34 +109,5 @@ export async function getChatHistory(sessionId, limit = 100) {
   } catch (error) {
     console.error('Error fetching chat history:', error)
     return []
-  }
-}      }),
-    })
-
-    if (!response.ok) {
-      throw new Error('Failed to submit feedback')
-    }
-
-    const data = await response.json()
-    return data
-  } catch (error) {
-    console.error('Error submitting feedback:', error)
-    throw error
-  }
-}
-
-export async function getFeedbackStats() {
-  try {
-    const response = await fetch(`${API_BASE_URL}/feedback/stats`)
-    
-    if (!response.ok) {
-      throw new Error('Failed to get feedback stats')
-    }
-
-    const data = await response.json()
-    return data
-  } catch (error) {
-    console.error('Error getting feedback stats:', error)
-    throw error
   }
 }
