@@ -8,11 +8,9 @@ export async function sendMessage(message, sessionId, username, personality = 'd
       username,
       personality
     }
-
     if (image) {
       body.image = image
     }
-
     const response = await fetch(`${API_BASE_URL}/chat/message`, {
       method: 'POST',
       headers: {
@@ -20,11 +18,9 @@ export async function sendMessage(message, sessionId, username, personality = 'd
       },
       body: JSON.stringify(body),
     })
-
     if (!response.ok) {
       throw new Error('Failed to send message')
     }
-
     const data = await response.json()
     return data
   } catch (error) {
@@ -38,11 +34,9 @@ export async function clearChat(sessionId) {
     const response = await fetch(`${API_BASE_URL}/chat/clear/${sessionId}`, {
       method: 'DELETE',
     })
-
     if (!response.ok) {
       throw new Error('Failed to clear chat')
     }
-
     const data = await response.json()
     return data
   } catch (error) {
@@ -64,6 +58,62 @@ export async function submitFeedback(messageContent, feedbackType, sessionId, us
         feedback_type: feedbackType,
         username: username
       }),
+    })
+    if (!response.ok) {
+      throw new Error('Failed to submit feedback')
+    }
+    const data = await response.json()
+    return data
+  } catch (error) {
+    console.error('Error submitting feedback:', error)
+    throw error
+  }
+}
+
+export async function getFeedbackStats() {
+  try {
+    const response = await fetch(`${API_BASE_URL}/feedback/stats`)
+    
+    if (!response.ok) {
+      throw new Error('Failed to get feedback stats')
+    }
+    const data = await response.json()
+    return data
+  } catch (error) {
+    console.error('Error getting feedback stats:', error)
+    throw error
+  }
+}
+
+// ===== Chat History Functions =====
+
+export async function getConversations(username) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/chat/conversations/${username}`)
+    if (!response.ok) {
+      throw new Error('Failed to fetch conversations')
+    }
+    const data = await response.json()
+    return data.conversations || []
+  } catch (error) {
+    console.error('Error fetching conversations:', error)
+    return []
+  }
+}
+
+export async function getChatHistory(sessionId, limit = 100) {
+  try {
+    const response = await fetch(`${API_BASE_URL}/chat/history/session/${sessionId}?limit=${limit}`)
+    if (!response.ok) {
+      throw new Error('Failed to fetch chat history')
+    }
+    const data = await response.json()
+    return data.messages || []
+  } catch (error) {
+    console.error('Error fetching chat history:', error)
+    return []
+  }
+}      }),
     })
 
     if (!response.ok) {
