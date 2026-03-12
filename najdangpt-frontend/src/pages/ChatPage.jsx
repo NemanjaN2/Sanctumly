@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import { sendMessage, clearChat, submitFeedback } from '../api/chat'
+import { sendMessage, clearChat, submitFeedback, getConversations, getChatHistory } from '../api/chat'
 import { uploadDocument } from '../api/upload'
 
 import { marked } from 'marked'
@@ -10,14 +10,16 @@ export default function ChatPage({ user, onLogout }) {
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const [personality, setPersonality] = useState('default')
-  const [sessionId] = useState(() => {
+  const [sessionId, setSessionId] = useState(() => {
     const stored = localStorage.getItem('session_id')
     if (stored) {
       console.log('🔒 Using secure session from localStorage')
       return stored
     }
     console.warn('⚠️ No secure session found, generating fallback')
-    return `session_${Date.now()}`
+    const newId = `session_${Date.now()}`
+    localStorage.setItem('session_id', newId)
+    return newId
   })
   const [uploading, setUploading] = useState(false)
   const [uploadProgress, setUploadProgress] = useState(0)
@@ -35,7 +37,13 @@ export default function ChatPage({ user, onLogout }) {
   const [voiceMode, setVoiceMode] = useState(false)
   const [voiceState, setVoiceState] = useState('idle')
   const [showDownloadModal, setShowDownloadModal] = useState(false)
-  const [pendingImage, setPendingImage] = useState(null) // { file, preview, base64 }
+  const [pendingImage, setPendingImage] = useState(null)
+  
+  // ===== NEW: Chat History State =====
+  const [conversations, setConversations] = useState([])
+  const [loadingConversations, setLoadingConversations] = useState(false)
+  const [activeConversationId, setActiveConversationId] = useState(null)
+
   const messagesEndRef = useRef(null)
   const fileInputRef = useRef(null)
   const imageInputRef = useRef(null)
@@ -60,6 +68,85 @@ export default function ChatPage({ user, onLogout }) {
     { text: 'Analyze my document', prompt: 'Analyze the document I uploaded and summarize key points' },
     { text: 'Write some code', prompt: 'Write a Python script to process CSV files' },
   ]
+
+  // ===== NEW: Fetch conversations on mount =====
+  const fetchConversations = useCallback(async () => {
+    if (!user?.username) return
+    setLoadingConversations(true)
+    try {
+      const convos = await getConversations(user.username)
+      setConversations(convos)
+    } catch (err) {
+      console.error('Failed to fetch conversations:', err)
+    } finally {
+      setLoadingConversations(false)
+    }
+  }, [user?.username])
+
+  useEffect(() => {
+    fetchConversations()
+  }, [fetchConversations])
+
+  // ===== NEW: Load a conversation by session_id =====
+  const loadConversation = async (convoSessionId) => {
+    try {
+      setLoading(true)
+      const history = await getChatHistory(convoSessionId)
+      setMessages(history.map(msg => ({
+        role: msg.role,
+        content: msg.content,
+        timestamp: msg.timestamp
+      })))
+      setSessionId(convoSessionId)
+      localStorage.setItem('session_id', convoSessionId)
+      setActiveConversationId(convoSessionId)
+      setSidebarOpen(false)
+    } catch (err) {
+      console.error('Failed to load conversation:', err)
+      setError('Failed to load conversation')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // ===== NEW: Start a new chat =====
+  const handleNewChat = () => {
+    const newSessionId = `session_${Date.now()}`
+    setSessionId(newSessionId)
+    localStorage.setItem('session_id', newSessionId)
+    setMessages([])
+    setActiveConversationId(null)
+    setUploadedFiles([])
+    setMessageFeedback({})
+    setSidebarOpen(false)
+    setSuccess('New conversation started')
+  }
+
+  // ===== NEW: Helper to format relative dates =====
+  const formatRelativeDate = (timestamp) => {
+    if (!timestamp) return ''
+    const date = new Date(timestamp)
+    const now = new Date()
+    const diffMs = now - date
+    const diffMins = Math.floor(diffMs / 60000)
+    const diffHours = Math.floor(diffMs / 3600000)
+    const diffDays = Math.floor(diffMs / 86400000)
+
+    if (diffMins < 1) return 'Just now'
+    if (diffMins < 60) return `${diffMins}m ago`
+    if (diffHours < 24) return `${diffHours}h ago`
+    if (diffDays < 7) return `${diffDays}d ago`
+    return date.toLocaleDateString()
+  }
+
+  // ===== NEW: Truncate title =====
+  const truncateTitle = (text, maxLen = 32) => {
+    if (!text) return 'New conversation'
+    // Strip markdown/special chars for cleaner titles
+    const clean = text.replace(/[#*_`~\[\]()]/g, '').trim()
+    if (clean.length <= maxLen) return clean
+    return clean.substring(0, maxLen).trim() + '…'
+  }
 
   useEffect(() => {
     if (sidebarOpen) {
@@ -109,17 +196,14 @@ export default function ChatPage({ user, onLogout }) {
 
     const preview = URL.createObjectURL(file)
 
-    // Convert to base64
     const reader = new FileReader()
     reader.onload = (e) => {
-      // Strip the data:image/...;base64, prefix — send raw base64
       const base64Full = e.target.result
       const base64Raw = base64Full.split(',')[1]
       setPendingImage({ file, preview, base64: base64Raw })
     }
     reader.readAsDataURL(file)
 
-    // Reset input so same file can be selected again
     if (imageInputRef.current) {
       imageInputRef.current.value = ''
     }
@@ -164,6 +248,9 @@ export default function ChatPage({ user, onLogout }) {
       }
 
       setMessages((prev) => [...prev, assistantMessage])
+      
+      // Refresh conversation list after sending a message
+      fetchConversations()
     } catch (err) {
       console.error('Failed to send message:', err)
       setError('Failed to send message. Please try again.')
@@ -189,6 +276,8 @@ export default function ChatPage({ user, onLogout }) {
         await clearChat(sessionId)
         setMessages([])
         setSuccess('Chat cleared successfully')
+        // Refresh conversations list
+        fetchConversations()
       } catch (err) {
         console.error('Failed to clear chat:', err)
         setError('Failed to clear chat. Please try again.')
@@ -729,6 +818,129 @@ export default function ChatPage({ user, onLogout }) {
             </div>
           </div>
 
+          {/* ===== NEW: Chat History Section ===== */}
+          <div className="sidebar-section">
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+              <div className="sidebar-section-title">Chat History</div>
+              <button
+                onClick={handleNewChat}
+                title="New chat"
+                style={{
+                  background: 'rgba(139, 92, 246, 0.15)',
+                  border: '1px solid rgba(139, 92, 246, 0.3)',
+                  borderRadius: '0.375rem',
+                  color: 'var(--accent-color, #8b5cf6)',
+                  cursor: 'pointer',
+                  padding: '0.25rem 0.5rem',
+                  fontSize: '0.75rem',
+                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.25rem',
+                  transition: 'all 0.2s'
+                }}
+              >
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                  <line x1="12" y1="5" x2="12" y2="19"></line>
+                  <line x1="5" y1="12" x2="19" y2="12"></line>
+                </svg>
+                New
+              </button>
+            </div>
+            <div style={{ 
+              maxHeight: '240px', 
+              overflowY: 'auto', 
+              marginTop: '0.5rem',
+              /* Custom scrollbar for dark theme */
+              scrollbarWidth: 'thin',
+              scrollbarColor: 'rgba(139, 92, 246, 0.3) transparent'
+            }}>
+              {loadingConversations ? (
+                <div style={{ 
+                  padding: '1rem', 
+                  textAlign: 'center', 
+                  fontSize: '0.8125rem', 
+                  color: 'var(--text-tertiary)' 
+                }}>
+                  Loading...
+                </div>
+              ) : conversations.length === 0 ? (
+                <div style={{ 
+                  padding: '0.75rem', 
+                  textAlign: 'center', 
+                  fontSize: '0.8125rem', 
+                  color: 'var(--text-tertiary)',
+                  fontStyle: 'italic'
+                }}>
+                  No conversations yet
+                </div>
+              ) : (
+                conversations.map((convo) => (
+                  <button
+                    key={convo.session_id}
+                    onClick={() => loadConversation(convo.session_id)}
+                    style={{
+                      width: '100%',
+                      textAlign: 'left',
+                      background: (activeConversationId === convo.session_id || sessionId === convo.session_id)
+                        ? 'rgba(139, 92, 246, 0.12)' 
+                        : 'transparent',
+                      border: 'none',
+                      borderLeft: (activeConversationId === convo.session_id || sessionId === convo.session_id)
+                        ? '2px solid var(--accent-color, #8b5cf6)' 
+                        : '2px solid transparent',
+                      borderRadius: '0.375rem',
+                      padding: '0.5rem 0.625rem',
+                      cursor: 'pointer',
+                      transition: 'all 0.15s ease',
+                      marginBottom: '0.125rem',
+                      display: 'block'
+                    }}
+                    onMouseEnter={(e) => {
+                      if (sessionId !== convo.session_id) {
+                        e.currentTarget.style.background = 'rgba(139, 92, 246, 0.06)'
+                      }
+                    }}
+                    onMouseLeave={(e) => {
+                      if (sessionId !== convo.session_id) {
+                        e.currentTarget.style.background = 'transparent'
+                      }
+                    }}
+                  >
+                    <div style={{ 
+                      fontSize: '0.8125rem', 
+                      fontWeight: (sessionId === convo.session_id) ? 500 : 400,
+                      color: 'var(--text-primary)',
+                      lineHeight: 1.3,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap'
+                    }}>
+                      {truncateTitle(convo.title)}
+                    </div>
+                    <div style={{ 
+                      fontSize: '0.6875rem', 
+                      color: 'var(--text-tertiary)', 
+                      marginTop: '0.125rem',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '0.375rem'
+                    }}>
+                      <span>{formatRelativeDate(convo.last_message_at)}</span>
+                      {convo.message_count && (
+                        <>
+                          <span style={{ opacity: 0.4 }}>·</span>
+                          <span>{convo.message_count} msgs</span>
+                        </>
+                      )}
+                    </div>
+                  </button>
+                ))
+              )}
+            </div>
+          </div>
+          {/* ===== END: Chat History Section ===== */}
+
           <div className="sidebar-section">
             <div className="sidebar-section-title">Actions</div>
             {user.is_admin && (
@@ -921,7 +1133,6 @@ export default function ChatPage({ user, onLogout }) {
                     }}
                   >
                     <div className={`message ${msg.role === 'user' ? 'message-user' : 'message-assistant'}`}>
-                      {/* Show image preview if user message had an image */}
                       {msg.imagePreview && (
                         <div style={{ marginBottom: '0.5rem' }}>
                           <img 
@@ -1056,7 +1267,6 @@ export default function ChatPage({ user, onLogout }) {
               </div>
             )}
 
-            {/* Pending image preview */}
             {pendingImage && (
               <div style={{
                 display: 'flex',
@@ -1106,7 +1316,6 @@ export default function ChatPage({ user, onLogout }) {
             )}
 
             <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'flex-end' }}>
-              {/* Hidden file inputs */}
               <input
                 type="file"
                 ref={fileInputRef}
@@ -1122,7 +1331,6 @@ export default function ChatPage({ user, onLogout }) {
                 style={{ display: 'none' }}
               />
               
-              {/* Attach file button */}
               <button 
                 onClick={() => fileInputRef.current?.click()}
                 disabled={uploading}
@@ -1134,7 +1342,6 @@ export default function ChatPage({ user, onLogout }) {
                 </svg>
               </button>
 
-              {/* Image upload button */}
               <button
                 onClick={() => imageInputRef.current?.click()}
                 className="btn btn-secondary btn-icon tooltip"
