@@ -5,6 +5,7 @@ INCLUDES: 20 messages/day hard limit for regular users, unlimited for Creator
 FIXED: History scoped by session_id to prevent cross-mode context bleed
 ADDED: Image analysis via base64 image in chat request
 MIGRATED: From Gemini to Groq (Llama 3.3 70B) - fully free, no Google dependency
+ADDED: /conversations/{username} endpoint for chat history sidebar
 """
 
 import logging
@@ -13,7 +14,7 @@ import base64
 from datetime import datetime, timedelta
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
-from sqlalchemy import func
+from sqlalchemy import func, distinct
 from openai import OpenAI
 
 from app.database import get_db
@@ -157,6 +158,82 @@ async def get_rate_limit_status(username: str, db: Session = Depends(get_db)):
         "messages_remaining": messages_remaining,
         "daily_limit": DAILY_MESSAGE_LIMIT,
         "reset_time": tomorrow.isoformat() + "Z"
+    }
+
+
+@router.get("/conversations/{username}")
+async def get_conversations(username: str, limit: int = 30, db: Session = Depends(get_db)):
+    """
+    Get list of distinct conversations (sessions) for a user.
+    Returns session_id, title (first user message), timestamps, and message count.
+    Used by web app sidebar chat history.
+    """
+    if not validate_username(username):
+        raise HTTPException(status_code=400, detail="Invalid username")
+    
+    # Get distinct session_ids with first/last timestamp and message count
+    session_stats = db.query(
+        Message.session_id,
+        func.min(Message.timestamp).label('first_message_at'),
+        func.max(Message.timestamp).label('last_message_at'),
+        func.count(Message.id).label('message_count')
+    ).filter(
+        Message.username == username.lower()
+    ).group_by(
+        Message.session_id
+    ).order_by(
+        func.max(Message.timestamp).desc()
+    ).limit(limit).all()
+    
+    conversations = []
+    for stat in session_stats:
+        # Get the first user message as the conversation title
+        first_msg = db.query(Message.content).filter(
+            Message.session_id == stat.session_id,
+            Message.role == 'user'
+        ).order_by(Message.timestamp.asc()).first()
+        
+        title = first_msg[0][:80] if first_msg else 'New conversation'
+        # Strip image prefix from title if present
+        if title.startswith('[Image attached] '):
+            title = title[17:]
+        if not title.strip():
+            title = 'Image analysis'
+        
+        conversations.append({
+            "session_id": stat.session_id,
+            "title": title,
+            "first_message_at": stat.first_message_at.isoformat() if stat.first_message_at else None,
+            "last_message_at": stat.last_message_at.isoformat() if stat.last_message_at else None,
+            "message_count": stat.message_count
+        })
+    
+    return {"conversations": conversations}
+
+
+@router.get("/history/session/{session_id}")
+async def get_session_history(session_id: str, limit: int = 100, db: Session = Depends(get_db)):
+    """
+    Get chat history for a specific SESSION.
+    Used by web app to load a past conversation when clicking sidebar item.
+    """
+    session_id = sanitize_session_id(session_id)
+    
+    messages = db.query(Message)\
+        .filter_by(session_id=session_id)\
+        .order_by(Message.timestamp.desc())\
+        .limit(limit)\
+        .all()
+    
+    return {
+        "messages": [
+            {
+                "role": msg.role,
+                "content": msg.content,
+                "timestamp": msg.timestamp.isoformat()
+            }
+            for msg in reversed(messages)
+        ]
     }
 
 
