@@ -128,7 +128,7 @@ export default function TherapistKnowledgeBase() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '1rem' }}>
         <div>
           <h2 style={{ fontSize: '1.125rem', fontWeight: 600, color: 'var(--text-primary)', marginBottom: '0.25rem' }}>
-            📚 Therapist Knowledge Base
+            Therapist Knowledge Base
           </h2>
           <p style={{ fontSize: '0.8125rem', color: 'var(--text-secondary)' }}>
             Professional therapeutic methods and techniques — injected into Wellness mode
