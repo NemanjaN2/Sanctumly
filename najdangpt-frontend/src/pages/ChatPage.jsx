@@ -52,6 +52,7 @@ export default function ChatPage({ user, onLogout }) {
   const personalities = [
     { value: 'default', label: 'Default', description: 'Balanced assistant' },
     { value: 'therapist', label: 'Wellness Companion', description: 'Mental health support' },
+    { value: 'content', label: 'Content Strategist', description: 'Social media & captions' },
   ]
 
   if (user.is_creator) {
