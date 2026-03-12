@@ -329,7 +329,7 @@ async def create_therapist_knowledge(data: TherapistKnowledgeCreate, db: Session
     db.commit()
     db.refresh(entry)
     
-    logger.info(f"📚 Therapist knowledge added: '{entry.title}' [{entry.category}]")
+    logger.info(f"Therapist knowledge added: '{entry.title}' [{entry.category}]")
     
     return {
         "success": True,
@@ -359,7 +359,7 @@ async def update_therapist_knowledge(entry_id: int, data: TherapistKnowledgeUpda
     entry.updated_at = datetime.utcnow()
     db.commit()
     
-    logger.info(f"📚 Therapist knowledge updated: '{entry.title}' [active={entry.is_active}]")
+    logger.info(f"Therapist knowledge updated: '{entry.title}' [active={entry.is_active}]")
     
     return {"success": True, "message": f"Updated: {entry.title}"}
 
