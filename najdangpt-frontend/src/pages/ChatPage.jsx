@@ -454,10 +454,10 @@ export default function ChatPage({ user, onLogout }) {
           <div className="modal-box" onClick={e=>e.stopPropagation()}>
             <div className="modal-top"><span>Download Apps</span><button onClick={() => setShowDownloadModal(false)}>✕</button></div>
             <div className="modal-content">
-              {[{l:'Windows',s:'Win 10/11',h:'https://github.com/NemanjaN2/Sanctumly/releases/download/V2.0/Sanctumly-Win10.zip'},
-                {l:'macOS',s:'macOS 11+',h:'https://github.com/NemanjaN2/Sanctumly/releases/download/V2.0/Sanctumly.app.zip'},
-                {l:'iOS (IPA)',s:'Sideload required',h:'https://github.com/NemanjaN2/Sanctumly/releases/download/V2.0/Sanctumly.ipa'},
-                {l:'Android',s:'Android 7.0+',h:'https://github.com/NemanjaN2/Sanctumly/releases/download/V2.0/Sanctumly.apk'}
+              {[{l:'Windows',s:'Win 10/11',h:'https://github.com/NemanjaN2/Sanctumly/releases/download/Sanctumly/Sanctumly-Win10.zip'},
+                {l:'macOS',s:'macOS 11+',h:'https://github.com/NemanjaN2/Sanctumly/releases/download/Sanctumly/Sanctumly.app.zip'},
+                {l:'iOS (IPA)',s:'Sideload required',h:'https://github.com/NemanjaN2/Sanctumly/releases/download/Sanctumly/Sanctumly.ipa'},
+                {l:'Android',s:'Android 7.0+',h:'https://github.com/NemanjaN2/Sanctumly/releases/download/Sanctumly/Sanctumly.apk'}
               ].map((a,i)=>(
                 <a key={i} href={a.h} download className="dl-item">
                   <div><div className="dl-name">{a.l}</div><div className="dl-sub">{a.s}</div></div>
