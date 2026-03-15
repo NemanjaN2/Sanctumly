@@ -15,215 +15,63 @@ export default function LoginPage({ onLogin }) {
     e.preventDefault()
     setError('')
     setLoading(true)
-
     try {
-      let response
-      if (isLogin) {
-        response = await login(username, password)
-      } else {
-        response = await signup(username, password, email)
-      }
-
+      const response = isLogin ? await login(username, password) : await signup(username, password, email)
       if (response.success) {
-		 if (response.session_id) {
+        if (response.session_id) {
           localStorage.setItem('session_id', response.session_id)
-          console.log('🔒 Secure session stored:', response.session_id.substring(0, 30) + '...')
         }
-        
-        localStorage.setItem('username', response.user.username)  
+        localStorage.setItem('username', response.user.username)
         onLogin(response.user)
         navigate('/chat')
       }
     } catch (err) {
-      setError(err.message || 'Authentication failed. Please try again.')
+      setError(err.message || 'Authentication failed')
     } finally {
       setLoading(false)
     }
   }
 
   return (
-    <div 
-      className="min-h-screen flex items-center justify-center p-4"
-      style={{ 
-        background: 'linear-gradient(135deg, #0f172a 0%, #1a2332 100%)',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center'
-      }}
-    >
-      <div 
-        className="glass-heavy rounded-2xl"
-        style={{
-          width: '100%',
-          maxWidth: '400px',
-          padding: '2rem',
-          margin: '0 auto'
-        }}
-      >
-        {/* Logo */}
-        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '1rem' }}>
-          <img 
-            src="/logo.png" 
-            alt="Sanctumly Logo" 
-            style={{ 
-              height: '64px',
-              width: 'auto',
-              objectFit: 'contain',
-              filter: 'drop-shadow(0 0 15px rgba(139, 92, 246, 0.3))',
-              animation: 'logoGlow 3s ease-in-out infinite'
-            }}
-          />
+    <div className="login-page">
+      <div className="login-card">
+        <img src="/logo.png" alt="" className="login-logo" />
+        <h1 className="login-title">Sanctumly</h1>
+        <p className="login-sub">Your AI Wellness Companion</p>
+
+        <div className="login-toggle">
+          <button className={`login-tab ${isLogin ? 'active' : ''}`} onClick={() => setIsLogin(true)}>Login</button>
+          <button className={`login-tab ${!isLogin ? 'active' : ''}`} onClick={() => setIsLogin(false)}>Sign Up</button>
         </div>
 
-        {/* Title */}
-        <h1 style={{ 
-          fontSize: '1.5rem', 
-          fontWeight: 'bold', 
-          textAlign: 'center', 
-          marginBottom: '0.25rem' 
-        }}>
-          <span className="gradient-text">Sanctumly</span>
-        </h1>
-        <p style={{ 
-          textAlign: 'center', 
-          color: '#94a3b8', 
-          fontSize: '0.875rem',
-          marginBottom: '1.5rem'
-        }}>
-          Your Personal AI Companion
-        </p>
+        {error && <div className="notif error">{error}</div>}
 
-        {/* Toggle */}
-        <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.5rem' }}>
-          <button
-            onClick={() => setIsLogin(true)}
-            className={isLogin ? 'btn btn-primary' : 'btn btn-secondary'}
-            style={{ 
-              flex: 1, 
-              padding: '0.625rem 1rem',
-              fontSize: '0.875rem',
-              fontWeight: '600'
-            }}
-          >
-            Login
-          </button>
-          <button
-            onClick={() => setIsLogin(false)}
-            className={!isLogin ? 'btn btn-primary' : 'btn btn-secondary'}
-            style={{ 
-              flex: 1, 
-              padding: '0.625rem 1rem',
-              fontSize: '0.875rem',
-              fontWeight: '600'
-            }}
-          >
-            Sign Up
-          </button>
-        </div>
-
-        {/* Error */}
-        {error && (
-          <div className="error-message" style={{ marginBottom: '1rem' }}>
-            <span className="error-icon">⚠️</span>
-            <span>{error}</span>
-          </div>
-        )}
-
-        {/* Form */}
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-          <div>
-            <label style={{ 
-              display: 'block', 
-              fontSize: '0.75rem', 
-              fontWeight: '500',
-              color: '#94a3b8',
-              marginBottom: '0.5rem'
-            }}>
-              Username
-            </label>
-            <input
-              type="text"
-              value={username}
-              onChange={(e) => setUsername(e.target.value)}
-              className="input"
-              placeholder="Enter your username"
-              required
-              autoComplete="username"
-              style={{ fontSize: '0.875rem' }}
-            />
+        <form onSubmit={handleSubmit} className="login-form">
+          <div className="login-field">
+            <label>Username</label>
+            <input type="text" value={username} onChange={e => setUsername(e.target.value)}
+              placeholder="Enter your username" required autoComplete="username" className="ib-text" />
           </div>
 
           {!isLogin && (
-            <div>
-              <label style={{ 
-                display: 'block', 
-                fontSize: '0.75rem', 
-                fontWeight: '500',
-                color: '#94a3b8',
-                marginBottom: '0.5rem'
-              }}>
-                Email (optional)
-              </label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="input"
-                placeholder="your@email.com"
-                autoComplete="email"
-                style={{ fontSize: '0.875rem' }}
-              />
+            <div className="login-field">
+              <label>Email (optional)</label>
+              <input type="email" value={email} onChange={e => setEmail(e.target.value)}
+                placeholder="your@email.com" autoComplete="email" className="ib-text" />
             </div>
           )}
 
-          <div>
-            <label style={{ 
-              display: 'block', 
-              fontSize: '0.75rem', 
-              fontWeight: '500',
-              color: '#94a3b8',
-              marginBottom: '0.5rem'
-            }}>
-              Password
-            </label>
-            <input
-              type="password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="input"
-              placeholder="Enter your password"
-              required
-              autoComplete={isLogin ? 'current-password' : 'new-password'}
-              style={{ fontSize: '0.875rem' }}
-            />
+          <div className="login-field">
+            <label>Password</label>
+            <input type="password" value={password} onChange={e => setPassword(e.target.value)}
+              placeholder="Enter your password" required autoComplete={isLogin ? 'current-password' : 'new-password'} className="ib-text" />
           </div>
 
-          <button
-            type="submit"
-            disabled={loading}
-            className="btn btn-primary"
-            style={{
-              width: '100%',
-              padding: '0.75rem',
-              fontSize: '1rem',
-              marginTop: '0.5rem'
-            }}
-          >
-            {loading ? 'Please wait...' : isLogin ? 'Login' : 'Create Account'}
+          <button type="submit" disabled={loading} className="login-submit">
+            {loading ? 'Please wait…' : isLogin ? 'Login' : 'Create Account'}
           </button>
         </form>
       </div>
-
-      <style>{`
-        @keyframes logoGlow {
-          0%, 100% {
-            filter: drop-shadow(0 0 15px rgba(139, 92, 246, 0.3));
-          }
-          50% {
-            filter: drop-shadow(0 0 25px rgba(139, 92, 246, 0.5));
-          }
-        }
-      `}</style>
     </div>
   )
 }
