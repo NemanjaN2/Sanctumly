@@ -30,6 +30,7 @@ function App() {
         <Route path="/login" element={isAuthenticated ? <Navigate to="/chat" /> : <LoginPage onLogin={handleLogin} />} />
         <Route path="/chat" element={isAuthenticated ? <ChatPage user={user} onLogout={handleLogout} /> : <Navigate to="/login" />} />
         <Route path="/admin" element={isAuthenticated && user?.is_admin ? <AdminPanel user={user} onLogout={handleLogout} /> : <Navigate to="/chat" />} />
+        <Route path="/wellness" element={isAuthenticated ? <WellnessPage user={user} /> : <Navigate to="/login" />} />
         <Route path="/" element={<Navigate to="/chat" />} />
       </Routes>
     </Router>
