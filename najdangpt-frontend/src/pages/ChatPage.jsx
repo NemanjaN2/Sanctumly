@@ -303,7 +303,7 @@ export default function ChatPage({ user, onLogout }) {
 
           <div className="sb-group sb-bottom-links">
             {user.is_admin && <Link to="/admin" className="sb-link">Admin Panel</Link>}
-            <a href="/wellness" className="sb-link">My Wellness</a>
+            <Link to="/wellness" className="sb-link">My Wellness</Link>
             <button className="sb-link" onClick={handleClearChat}>Clear Chat</button>
             <button className="sb-link" onClick={() => setShowDownloadModal(true)}>Download Apps</button>
             <button className="sb-link danger" onClick={onLogout}>Log out</button>
