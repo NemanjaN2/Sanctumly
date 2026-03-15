@@ -4,6 +4,7 @@ import LoginPage from './pages/LoginPage'
 import ChatPage from './pages/ChatPage'
 import AdminPanel from './pages/AdminPanel'
 import WellnessPage from './pages/WellnessPage'
+import './App.css'
 
 function App() {
   const [user, setUser] = useState(null)
