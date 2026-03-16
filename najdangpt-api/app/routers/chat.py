@@ -6,7 +6,9 @@ FIXED: History scoped by session_id to prevent cross-mode context bleed
 ADDED: Image analysis via base64 image in chat request
 MIGRATED: From Gemini to Groq - fully free, no Google dependency
 ADDED: /conversations/{username} endpoint for chat history sidebar
-FIXED: Smart search detection for Serbian + English (no more hallucinated facts)
+FIXED: Smart search detection for Serbian + English
+FIXED: Context-aware search (uses previous message when user says "search for it")
+FIXED: When search fails, model says "I don't know" instead of hallucinating
 """
 
 import logging
@@ -67,7 +69,7 @@ def should_search(message: str) -> bool:
     """
     msg_lower = message.lower().strip()
 
-    # ---- EXPLICIT SEARCH REQUESTS (highest priority) ----
+    # ---- EXPLICIT SEARCH REQUESTS ----
     explicit_triggers = [
         # Serbian
         "pretraži", "pretražii", "pretrazi", "pogledaj", "nađi", "nadji",
@@ -147,6 +149,42 @@ def should_search(message: str) -> bool:
     return False
 
 
+def is_reference_search(message: str) -> bool:
+    """
+    Detect if the user is saying "search for it" / "look it up" / "pretrazi internet pa vidi"
+    without specifying WHAT to search. In this case we need to use context from previous messages.
+    """
+    msg_lower = message.lower().strip()
+    
+    # Patterns that mean "search for what we were just talking about"
+    reference_patterns = [
+        r'^(pretraži|pretrazi|pogledaj|proveri|nadji|nađi)\s*(internet|net|online)?\s*(pa|i)?\s*(vidi|pogledaj|proveri)?[.!?]?\s*$',
+        r'^(look it up|search for it|google it|find it|check it|search it)[.!?]?\s*$',
+        r'^(pretraži|pretrazi|pogledaj)\s*(to|ovo)?[.!?]?\s*$',
+    ]
+    for pattern in reference_patterns:
+        if re.search(pattern, msg_lower):
+            return True
+    return False
+
+
+def get_search_context_from_history(history_messages) -> str:
+    """
+    When user says "search for it", extract what they were talking about
+    from the most recent user message in the conversation history.
+    """
+    # history_messages are in DESC order (newest first)
+    for msg in history_messages:
+        if msg.role == "user":
+            content = msg.content
+            # Skip image-only messages
+            if content.startswith('[Image attached]'):
+                content = content.replace('[Image attached] ', '')
+            if content.strip() and len(content.strip()) > 2:
+                return content.strip()
+    return ""
+
+
 def extract_search_query(message: str) -> str:
     """
     Clean user message into a good search query.
@@ -161,7 +199,7 @@ def extract_search_query(message: str) -> str:
         r'\b(pretraži|pretrazi|pogledaj|nađi|nadji|potraži|potrazi|proveri)\s*(mi\s*)?(na internetu\s*|na netu\s*|online\s*)?',
         r'\b(reci mi|kaži mi|kazi mi)\s*',
         r'\b(da li znaš|da li znas|znaš li|znas li)\s*',
-        r'\b(i vidi|i pogledaj|i proveri)\s*',
+        r'\b(i vidi|i pogledaj|i proveri|pa vidi|pa pogledaj|pa proveri)\s*',
         # English
         r'^(hey|hi|hello|yo),?\s*',
         r'\b(can you|could you|please|would you)\b\s*',
@@ -477,21 +515,37 @@ Their preferences: {memory['preferences']}
         })
 
     # ============================================================
-    # SMART WEB SEARCH (Serbian + English detection)
+    # SMART WEB SEARCH (Serbian + English, context-aware)
     # ============================================================
     might_need_search = should_search(request.message)
 
     if might_need_search:
-        search_query = extract_search_query(request.message)
-        logger.info(f"🔍 Search triggered | Original: {request.message} | Query: {search_query}")
+        # Check if this is a "search for it" reference (no specific topic in message)
+        if is_reference_search(request.message):
+            # User said "pretrazi internet pa vidi" or "look it up" — get topic from history
+            previous_topic = get_search_context_from_history(history_messages)
+            if previous_topic:
+                search_query = extract_search_query(previous_topic)
+                logger.info(f"🔍 Reference search | User said: '{request.message}' | Using context: '{search_query}'")
+            else:
+                search_query = extract_search_query(request.message)
+                logger.info(f"🔍 Reference search but no history context, using: '{search_query}'")
+        else:
+            search_query = extract_search_query(request.message)
+            logger.info(f"🔍 Direct search | Original: '{request.message}' | Query: '{search_query}'")
+
         search_result = search_web(search_query)
+        
         if search_result:
-            system_prompt += f"\n\nWeb search results for reference:\n{search_result}\n\nUse ONLY these search results to answer factual questions. Do not add information beyond what the search results contain. If the results don't answer the question, say you couldn't find the answer."
-            # Update system message with search results
+            # Search succeeded — inject results
+            system_prompt += f"\n\nWeb search results for reference:\n{search_result}\n\nUse ONLY these search results to answer factual questions. Do not add information beyond what the search results contain. If the results don't fully answer the question, say what you found and note what you're unsure about."
             messages[0]["content"] = system_prompt
             logger.info(f"✅ Web search: Added results to context")
         else:
-            logger.info(f"⚠️ Web search: No results found for: {search_query}")
+            # Search was triggered but FAILED — force "I don't know"
+            system_prompt += "\n\nIMPORTANT: The user asked a factual question. Web search was attempted but returned NO results. You MUST NOT guess or make up an answer. Tell the user you tried to search but couldn't find results right now, and suggest they look it up themselves. Do NOT invent dates, facts, or details."
+            messages[0]["content"] = system_prompt
+            logger.info(f"⚠️ Search failed — injected anti-hallucination instruction")
 
     # Build the current user message
     if has_image:
