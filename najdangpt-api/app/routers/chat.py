@@ -398,7 +398,7 @@ async def chat_message(request: ChatRequest, db: Session = Depends(get_db)):
 
     # Get conversation history BY SESSION_ID
     history_messages = db.query(Message).filter_by(session_id=session_id)\
-        .order_by(Message.timestamp.desc()).limit(20).all()
+        .order_by(Message.timestamp.desc()).limit(12).all()
 
     # Build OpenAI-compatible messages
     messages = [{"role": "system", "content": system_prompt}]
@@ -454,7 +454,7 @@ async def chat_message(request: ChatRequest, db: Session = Depends(get_db)):
     try:
         response = groq_client.chat.completions.create(
             model=model_to_use, messages=messages,
-            temperature=0.7, top_p=0.95, max_tokens=8192,
+            temperature=0.7, top_p=0.95, max_tokens=1024,
         )
         response_text = response.choices[0].message.content
 
