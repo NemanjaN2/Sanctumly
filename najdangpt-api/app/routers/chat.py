@@ -1,4 +1,4 @@
-“””
+"""
 Chat routes - Message sending, history, clear
 NOW USES USERNAME-BASED HISTORY (syncs across all devices)
 INCLUDES: 25 messages/day hard limit for regular users, unlimited for Creator
@@ -9,8 +9,7 @@ ADDED: /conversations/{username} endpoint for chat history sidebar
 FIXED: Smart search detection for Serbian + English
 FIXED: Context-aware search (uses previous message when user says “search for it”)
 FIXED: When search fails, model says “I don’t know” instead of hallucinating
-FIXED: Long-term memory now actually saved after conversations (was never being written)
-“””
+FIXED: Long-term memory now actually saved after conversations (was never being """
 
 import logging
 import os
