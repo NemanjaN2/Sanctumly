@@ -9,6 +9,7 @@ ADDED: /conversations/{username} endpoint for chat history sidebar
 FIXED: Smart search detection for Serbian + English
 FIXED: Context-aware search (uses previous message when user says "search for it")
 FIXED: When search fails, model says "I don't know" instead of hallucinating
+FIXED: Long-term memory now actually saved after conversations (was never being written)
 """
 
 import logging
@@ -33,7 +34,7 @@ from app.security import (
     log_message_request,
 )
 from app.services import retrieve_relevant_context, search_web
-from app.services.memory import get_conversation_memory
+from app.services.memory import get_conversation_memory, update_conversation_memory
 from app.services.therapist_kb import get_therapist_knowledge_context
 from app.prompts import get_system_prompt
 
@@ -254,6 +255,54 @@ def clean_base64(base64_data: str) -> str:
     return base64_data
 
 
+def save_memory(username: str, history_messages, last_response: str, db: Session):
+    """
+    Extract and save long-term memory from recent conversation using Groq.
+    Called every 6 user messages in therapist mode.
+    """
+    try:
+        recent = "\n".join([
+            f"{'User' if m.role == 'user' else 'Sanctumly'}: {m.content}"
+            for m in reversed(history_messages[-10:])
+        ])
+        recent += f"\nSanctumly: {last_response}"
+
+        extract_prompt = f"""Based on this conversation, extract concise information about the user.
+
+Conversation:
+{recent}
+
+Respond in this EXACT format with no extra text:
+SUMMARY: (2-3 sentences about what this person is dealing with)
+KEY_FACTS: (age, situation, relationships, struggles — comma separated)
+PREFERENCES: (how they like to be spoken to, what helps them — comma separated)"""
+
+        mem_response = groq_client.chat.completions.create(
+            model=GROQ_MODEL,
+            messages=[{"role": "user", "content": extract_prompt}],
+            temperature=0.3,
+            max_tokens=300,
+        )
+        text = mem_response.choices[0].message.content
+
+        summary_match = re.search(r'SUMMARY:\s*(.+?)(?=KEY_FACTS:|$)', text, re.DOTALL)
+        key_facts_match = re.search(r'KEY_FACTS:\s*(.+?)(?=PREFERENCES:|$)', text, re.DOTALL)
+        preferences_match = re.search(r'PREFERENCES:\s*(.+?)$', text, re.DOTALL)
+
+        summary = summary_match.group(1).strip() if summary_match else ""
+        key_facts = key_facts_match.group(1).strip() if key_facts_match else ""
+        preferences = preferences_match.group(1).strip() if preferences_match else ""
+
+        if summary:
+            update_conversation_memory(username, summary, key_facts, preferences, db)
+            logger.info(f"✅ Memory saved for {username}")
+        else:
+            logger.warning(f"⚠️ Memory extraction returned empty summary for {username}")
+
+    except Exception as e:
+        logger.error(f"⚠️ Memory save failed for {username}: {e}")
+
+
 # ============================================================
 # ROUTES
 # ============================================================
@@ -372,7 +421,7 @@ async def chat_message(request: ChatRequest, db: Session = Depends(get_db)):
     # Get RAG context
     rag_context = retrieve_relevant_context(request.message, session_id, db)
 
-    # Get conversation memory - ONLY for wellness mode
+    # Get conversation memory - ONLY for therapist mode
     memory_context = ""
     if request.personality == "therapist":
         memory = get_conversation_memory(username, db)
@@ -414,7 +463,6 @@ async def chat_message(request: ChatRequest, db: Session = Depends(get_db)):
     might_need_search = should_search(request.message)
 
     if might_need_search:
-        # Check if this is a "search for it" reference
         if is_reference_search(request.message):
             previous_topic = get_search_context_from_history(history_messages)
             if previous_topic:
@@ -434,7 +482,6 @@ async def chat_message(request: ChatRequest, db: Session = Depends(get_db)):
             messages[0]["content"] = system_prompt
             logger.info(f"✅ Web search: Added results to context")
         else:
-            # Search FAILED — force "I don't know"
             system_prompt += "\n\nIMPORTANT: The user asked a factual question. Web search was attempted but returned NO results. You MUST NOT guess or make up an answer. Tell the user you tried to search but couldn't find results right now, and suggest they look it up themselves. Do NOT invent dates, facts, or details."
             messages[0]["content"] = system_prompt
             logger.info(f"⚠️ Search failed — injected anti-hallucination instruction")
@@ -465,6 +512,12 @@ async def chat_message(request: ChatRequest, db: Session = Depends(get_db)):
         db.add(user_msg)
         db.add(assistant_msg)
         db.commit()
+
+        # ---- SAVE LONG-TERM MEMORY every 6 user messages (therapist mode only) ----
+        if request.personality == "therapist":
+            user_msg_count = get_daily_message_count(db, username)
+            if user_msg_count % 6 == 0:
+                save_memory(username, history_messages, response_text, db)
 
         remaining = "unlimited" if is_creator else max(0, DAILY_MESSAGE_LIMIT - get_daily_message_count(db, username))
         logger.info(f"✅ Response: {len(response_text)} chars | Remaining: {remaining} | Image: {has_image} | Model: {model_to_use} | Searched: {might_need_search}")
