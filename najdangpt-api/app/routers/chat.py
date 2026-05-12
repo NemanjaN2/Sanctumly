@@ -10,6 +10,7 @@ FIXED: Smart search detection for Serbian + English
 FIXED: Context-aware search (uses previous message when user says "search for it")
 FIXED: When search fails, model says "I don't know" instead of hallucinating
 FIXED: Long-term memory now actually saved after conversations (was never being written)
+ADDED: URL fetching — Sanctumly can now open and read links users share
 """
 
 import logging
@@ -19,7 +20,7 @@ import base64
 from datetime import datetime, timedelta
 from fastapi import APIRouter, HTTPException, Depends
 from sqlalchemy.orm import Session
-from sqlalchemy import func, distinct
+from sqlalchemy import func
 from openai import OpenAI
 
 from app.database import get_db
@@ -33,7 +34,7 @@ from app.security import (
     check_message_rate_limit,
     log_message_request,
 )
-from app.services import retrieve_relevant_context, search_web
+from app.services import retrieve_relevant_context, search_web, fetch_url, extract_urls
 from app.services.memory import get_conversation_memory, update_conversation_memory
 from app.services.therapist_kb import get_therapist_knowledge_context
 from app.prompts import get_system_prompt
@@ -64,13 +65,8 @@ MAX_IMAGE_SIZE = 4 * 1024 * 1024
 # ============================================================
 
 def should_search(message: str) -> bool:
-    """
-    Determine if a user message should trigger web search.
-    Handles both English and Serbian with proper pattern matching.
-    """
     msg_lower = message.lower().strip()
 
-    # ---- EXPLICIT SEARCH REQUESTS ----
     explicit_triggers = [
         "pretraži", "pretražii", "pretrazi", "pogledaj", "nađi", "nadji",
         "potraži", "potrazi", "proveri", "guglaj", "google",
@@ -84,7 +80,6 @@ def should_search(message: str) -> bool:
         if trigger in msg_lower:
             return True
 
-    # ---- SERBIAN QUESTION PATTERNS ----
     serbian_patterns = [
         r'\bkada\s+(je|su|će|ce)\b',
         r'\bkad\s+(je|izlazi|izašao|izasao|izašla|izasla)\b',
@@ -103,7 +98,6 @@ def should_search(message: str) -> bool:
         if re.search(pattern, msg_lower):
             return True
 
-    # ---- ENGLISH QUESTION PATTERNS ----
     english_patterns = [
         r'\bwho\s+(is|are|was|were)\b',
         r'\bwhat\s+(is|are|was|were|does|did|happened)\b',
@@ -115,7 +109,6 @@ def should_search(message: str) -> bool:
         if re.search(pattern, msg_lower):
             return True
 
-    # ---- TOPIC KEYWORDS ----
     topic_triggers = [
         'latest', 'current', 'recent', 'today', 'now', 'news',
         'price', 'stock', 'weather', 'forecast', 'temperature',
@@ -131,11 +124,9 @@ def should_search(message: str) -> bool:
         if trigger in msg_lower:
             return True
 
-    # ---- YEAR MENTIONS ----
     if re.search(r'\b(202[3-9]|203\d)\b', msg_lower):
         return True
 
-    # ---- QUESTION MARK + PROPER NOUNS ----
     if '?' in message:
         words = message.split()
         if len(words) > 2:
@@ -147,10 +138,6 @@ def should_search(message: str) -> bool:
 
 
 def is_reference_search(message: str) -> bool:
-    """
-    Detect if user is saying "search for it" / "look it up" / "pretrazi internet pa vidi"
-    without specifying WHAT to search — needs context from previous messages.
-    """
     msg_lower = message.lower().strip()
     reference_patterns = [
         r'^(pretraži|pretrazi|pogledaj|proveri|nadji|nađi)\s*(internet|net|online)?\s*(pa|i)?\s*(vidi|pogledaj|proveri)?[.!?]?\s*$',
@@ -164,10 +151,6 @@ def is_reference_search(message: str) -> bool:
 
 
 def get_search_context_from_history(history_messages) -> str:
-    """
-    When user says "search for it", extract what they were talking about
-    from the most recent user message in the conversation history.
-    """
     for msg in history_messages:
         if msg.role == "user":
             content = msg.content
@@ -179,7 +162,6 @@ def get_search_context_from_history(history_messages) -> str:
 
 
 def extract_search_query(message: str) -> str:
-    """Clean user message into a good search query."""
     q = message.strip()
     fillers = [
         r'^(hej|ej|ćao|cao|zdravo|brate|buraz),?\s*',
@@ -256,10 +238,7 @@ def clean_base64(base64_data: str) -> str:
 
 
 def save_memory(username: str, history_messages, last_response: str, db: Session):
-    """
-    Extract and save long-term memory from recent conversation using Groq.
-    Called every 6 user messages in therapist mode.
-    """
+    """Extract and save long-term memory from recent conversation using Groq."""
     try:
         recent = "\n".join([
             f"{'User' if m.role == 'user' else 'Sanctumly'}: {m.content}"
@@ -418,6 +397,19 @@ async def chat_message(request: ChatRequest, db: Session = Depends(get_db)):
 
     logger.info(f"💬 Chat - User: {username}, Creator: {is_creator}, Mode: {request.personality}, Image: {has_image}")
 
+    # ============================================================
+    # URL FETCHING — read any links the user shared
+    # ============================================================
+    url_context = ""
+    urls = extract_urls(request.message)
+    if urls:
+        for url in urls[:2]:  # max 2 URLs per message
+            content = fetch_url(url)
+            if content:
+                url_context += content + "\n"
+        if url_context:
+            logger.info(f"🌐 URL fetch: loaded content from {len(urls)} URL(s)")
+
     # Get RAG context
     rag_context = retrieve_relevant_context(request.message, session_id, db)
 
@@ -430,6 +422,10 @@ async def chat_message(request: ChatRequest, db: Session = Depends(get_db)):
 
     # Get system prompt
     system_prompt = get_system_prompt(is_creator, username, request.personality)
+
+    if url_context:
+        system_prompt += f"\n\nContent fetched from URL(s) the user shared:\n{url_context}"
+        logger.info("✅ URL content injected into context")
 
     if rag_context:
         system_prompt += f"\n\nRelevant context from uploaded documents:\n{rag_context}"
@@ -459,8 +455,9 @@ async def chat_message(request: ChatRequest, db: Session = Depends(get_db)):
 
     # ============================================================
     # SMART WEB SEARCH (Serbian + English, context-aware)
+    # Skip search if we already fetched URL content for this message
     # ============================================================
-    might_need_search = should_search(request.message)
+    might_need_search = should_search(request.message) and not url_context
 
     if might_need_search:
         if is_reference_search(request.message):
@@ -520,11 +517,12 @@ async def chat_message(request: ChatRequest, db: Session = Depends(get_db)):
                 save_memory(username, history_messages, response_text, db)
 
         remaining = "unlimited" if is_creator else max(0, DAILY_MESSAGE_LIMIT - get_daily_message_count(db, username))
-        logger.info(f"✅ Response: {len(response_text)} chars | Remaining: {remaining} | Image: {has_image} | Model: {model_to_use} | Searched: {might_need_search}")
+        logger.info(f"✅ Response: {len(response_text)} chars | Remaining: {remaining} | Image: {has_image} | Model: {model_to_use} | Searched: {might_need_search} | URLs: {len(urls) if urls else 0}")
 
         return {
             "response": response_text, "session_id": session_id,
             "had_rag_context": bool(rag_context), "had_memory": bool(memory_context),
+            "had_url_context": bool(url_context),
             "messages_remaining": remaining
         }
 
