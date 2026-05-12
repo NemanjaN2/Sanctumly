@@ -1,8 +1,8 @@
 """
 Web search service
-Primary: Serper.dev (Google Search API) — 2,500 free queries, no credit card
-Fallback: DuckDuckGo (if Serper fails or no API key)
-ADDED: fetch_url() — opens and reads web pages, used when user shares a link
+Primary: Serper.dev (Google Search API)
+Fallback: DuckDuckGo
+ADDED: fetch_url() and extract_urls() for reading links users share
 """
 import logging
 import os
@@ -14,7 +14,6 @@ logger = logging.getLogger(__name__)
 
 SERPER_API_KEY = os.environ.get("SERPER_API_KEY", "")
 
-# Try importing DuckDuckGo as fallback
 DDGS_AVAILABLE = False
 try:
     try:
@@ -25,7 +24,6 @@ try:
 except ImportError:
     pass
 
-# Try importing BeautifulSoup for HTML parsing
 BS4_AVAILABLE = False
 try:
     from bs4 import BeautifulSoup
@@ -33,14 +31,12 @@ try:
 except ImportError:
     pass
 
-# Max characters of page content to inject into context
 MAX_PAGE_CONTENT = 4000
 
-# Blocked domains — don't attempt to fetch these
 BLOCKED_DOMAINS = {
     "facebook.com", "instagram.com", "twitter.com", "x.com",
-    "tiktok.com", "linkedin.com", "reddit.com",  # login walls
-    "netflix.com", "spotify.com",  # paywalls
+    "tiktok.com", "linkedin.com", "reddit.com",
+    "netflix.com", "spotify.com",
 }
 
 HEADERS = {
@@ -50,7 +46,7 @@ HEADERS = {
 }
 
 
-def extract_urls(text: str) -> list[str]:
+def extract_urls(text: str) -> list:
     """Extract all URLs from a message."""
     pattern = r'https?://[^\s<>"{}|\\^`\[\]]+'
     return re.findall(pattern, text)
@@ -59,8 +55,7 @@ def extract_urls(text: str) -> list[str]:
 def is_blocked_domain(url: str) -> bool:
     """Check if URL belongs to a blocked domain."""
     try:
-        domain = urlparse(url).netloc.lower()
-        domain = domain.replace("www.", "")
+        domain = urlparse(url).netloc.lower().replace("www.", "")
         return any(blocked in domain for blocked in BLOCKED_DOMAINS)
     except Exception:
         return False
@@ -70,14 +65,10 @@ def clean_html(html: str) -> str:
     """Extract readable text from HTML."""
     if BS4_AVAILABLE:
         soup = BeautifulSoup(html, "html.parser")
-
-        # Remove noise tags
         for tag in soup(["script", "style", "nav", "footer", "header",
-                          "aside", "form", "button", "iframe", "ads",
-                          "noscript", "meta", "link"]):
+                         "aside", "form", "button", "iframe",
+                         "noscript", "meta", "link"]):
             tag.decompose()
-
-        # Try to find main content area first
         main = (
             soup.find("article") or
             soup.find("main") or
@@ -85,15 +76,11 @@ def clean_html(html: str) -> str:
             soup.find(id=re.compile(r"content|main|article", re.I)) or
             soup.find("body")
         )
-
         text = main.get_text(separator="\n") if main else soup.get_text(separator="\n")
     else:
-        # Fallback: strip HTML tags with regex
         text = re.sub(r'<[^>]+>', ' ', html)
 
-    # Clean up whitespace
     lines = [line.strip() for line in text.splitlines() if line.strip()]
-    # Remove very short lines (nav items, buttons)
     lines = [line for line in lines if len(line) > 30]
     return "\n".join(lines)
 
@@ -104,25 +91,19 @@ def fetch_url(url: str) -> str:
     Returns formatted string for context injection, or empty string on failure.
     """
     if is_blocked_domain(url):
-        logger.info(f"🚫 Blocked domain, skipping fetch: {url}")
+        logger.info(f"Blocked domain, skipping fetch: {url}")
         return f"[URL blocked] {url} requires login or is a restricted platform."
 
     try:
-        logger.info(f"🌐 Fetching URL: {url}")
-        response = requests.get(
-            url,
-            headers=HEADERS,
-            timeout=10,
-            allow_redirects=True
-        )
+        logger.info(f"Fetching URL: {url}")
+        response = requests.get(url, headers=HEADERS, timeout=10, allow_redirects=True)
 
         if response.status_code != 200:
-            logger.warning(f"⚠️ URL fetch returned {response.status_code}: {url}")
+            logger.warning(f"URL fetch returned {response.status_code}: {url}")
             return ""
 
         content_type = response.headers.get("content-type", "").lower()
 
-        # Handle JSON responses
         if "application/json" in content_type:
             try:
                 data = response.json()
@@ -131,40 +112,37 @@ def fetch_url(url: str) -> str:
             except Exception:
                 pass
 
-        # Handle non-HTML (PDF, binary, etc.)
         if "text/html" not in content_type and "text/plain" not in content_type:
-            logger.warning(f"⚠️ Unsupported content type: {content_type}")
-            return f"[Could not read content from {url} — unsupported format: {content_type}]"
+            logger.warning(f"Unsupported content type: {content_type}")
+            return f"[Could not read content from {url} — unsupported format]"
 
-        # Parse HTML
         raw_text = clean_html(response.text)
 
         if not raw_text.strip():
             return ""
 
-        # Truncate to max length
         if len(raw_text) > MAX_PAGE_CONTENT:
             raw_text = raw_text[:MAX_PAGE_CONTENT] + "\n... [content truncated]"
 
         domain = urlparse(url).netloc.replace("www.", "")
-        logger.info(f"✅ Fetched {len(raw_text)} chars from {domain}")
+        logger.info(f"Fetched {len(raw_text)} chars from {domain}")
         return f"[Content from {domain}]\n{raw_text}\n"
 
     except requests.exceptions.Timeout:
-        logger.error(f"❌ Timeout fetching: {url}")
-        return f"[Timeout] Could not load {url} — the page took too long to respond."
+        logger.error(f"Timeout fetching: {url}")
+        return f"[Timeout] Could not load {url} — page took too long to respond."
     except requests.exceptions.ConnectionError:
-        logger.error(f"❌ Connection error fetching: {url}")
+        logger.error(f"Connection error fetching: {url}")
         return f"[Error] Could not connect to {url}."
     except Exception as e:
-        logger.error(f"❌ URL fetch error for {url}: {e}")
+        logger.error(f"URL fetch error for {url}: {e}")
         return ""
 
 
 def search_serper(query: str, max_results: int = 5) -> str:
     """Search using Serper.dev (Google Search API)"""
     if not SERPER_API_KEY:
-        logger.warning("⚠️ No SERPER_API_KEY set")
+        logger.warning("No SERPER_API_KEY set")
         return ""
 
     try:
@@ -172,10 +150,7 @@ def search_serper(query: str, max_results: int = 5) -> str:
             "X-API-KEY": SERPER_API_KEY,
             "Content-Type": "application/json",
         }
-        payload = {
-            "q": query,
-            "num": max_results,
-        }
+        payload = {"q": query, "num": max_results}
 
         response = requests.post(
             "https://google.serper.dev/search",
@@ -185,17 +160,16 @@ def search_serper(query: str, max_results: int = 5) -> str:
         )
 
         if response.status_code != 200:
-            logger.error(f"❌ Serper error: {response.status_code} - {response.text[:200]}")
+            logger.error(f"Serper error: {response.status_code} - {response.text[:200]}")
             return ""
 
         data = response.json()
-
         organic = data.get("organic", [])
         knowledge = data.get("knowledgeGraph", {})
         answer_box = data.get("answerBox", {})
 
         if not organic and not knowledge and not answer_box:
-            logger.warning(f"⚠️ Serper: No results for '{query}'")
+            logger.warning(f"Serper: No results for '{query}'")
             return ""
 
         search_text = ""
@@ -220,21 +194,20 @@ def search_serper(query: str, max_results: int = 5) -> str:
             title = result.get("title", "No title")
             snippet = result.get("snippet", "No description")
             link = result.get("link", "")
-
             search_text += f"[Result {i}] {title}\n"
             search_text += f"{snippet}\n"
             if link:
                 search_text += f"Source: {link}\n"
             search_text += "\n"
 
-        logger.info(f"✅ Serper: Found {len(organic)} results for '{query}'")
+        logger.info(f"Serper: Found {len(organic)} results for '{query}'")
         return search_text
 
     except requests.exceptions.Timeout:
-        logger.error(f"❌ Serper timeout for: '{query}'")
+        logger.error(f"Serper timeout for: '{query}'")
         return ""
     except Exception as e:
-        logger.error(f"❌ Serper error: {e}")
+        logger.error(f"Serper error: {e}")
         return ""
 
 
@@ -244,11 +217,8 @@ def search_ddg(query: str, max_results: int = 5) -> str:
         return ""
 
     try:
-        clean_query = query
-        if len(clean_query) > 100:
-            clean_query = clean_query[:100]
-
-        logger.info(f"🦆 DuckDuckGo fallback searching for: '{clean_query}'")
+        clean_query = query[:100] if len(query) > 100 else query
+        logger.info(f"DuckDuckGo fallback searching for: '{clean_query}'")
 
         with DDGS() as ddgs:
             results = list(ddgs.text(clean_query, max_results=max_results, region='wt-wt', safesearch='off', timelimit='m'))
@@ -261,18 +231,17 @@ def search_ddg(query: str, max_results: int = 5) -> str:
             title = result.get('title', 'No title')
             body = result.get('body', 'No description')
             url = result.get('href', '')
-
             search_text += f"[Result {i}] {title}\n"
             search_text += f"{body}\n"
             if url:
                 search_text += f"Source: {url}\n"
             search_text += "\n"
 
-        logger.info(f"✅ DuckDuckGo: Found {len(results)} results")
+        logger.info(f"DuckDuckGo: Found {len(results)} results")
         return search_text
 
     except Exception as e:
-        logger.error(f"❌ DuckDuckGo error: {e}")
+        logger.error(f"DuckDuckGo error: {e}")
         return ""
 
 
@@ -285,138 +254,11 @@ def search_web(query: str) -> str:
         result = search_serper(query)
         if result:
             return result
-        logger.info("⚠️ Serper returned nothing, trying DuckDuckGo fallback...")
+        logger.info("Serper returned nothing, trying DuckDuckGo fallback...")
 
     result = search_ddg(query)
     if result:
         return result
 
-    logger.warning(f"⚠️ All search engines failed for: '{query}'")
-    return ""        }
-        payload = {
-            "q": query,
-            "num": max_results,
-        }
-        
-        response = requests.post(
-            "https://google.serper.dev/search",
-            headers=headers,
-            json=payload,
-            timeout=10
-        )
-        
-        if response.status_code != 200:
-            logger.error(f"❌ Serper error: {response.status_code} - {response.text[:200]}")
-            return ""
-        
-        data = response.json()
-        
-        # Build results from organic results
-        organic = data.get("organic", [])
-        knowledge = data.get("knowledgeGraph", {})
-        answer_box = data.get("answerBox", {})
-        
-        if not organic and not knowledge and not answer_box:
-            logger.warning(f"⚠️ Serper: No results for '{query}'")
-            return ""
-        
-        search_text = ""
-        
-        # Include answer box if present (direct answer from Google)
-        if answer_box:
-            ab_title = answer_box.get("title", "")
-            ab_answer = answer_box.get("answer", answer_box.get("snippet", ""))
-            if ab_answer:
-                search_text += f"[Direct Answer] {ab_title}\n{ab_answer}\n\n"
-        
-        # Include knowledge graph if present
-        if knowledge:
-            kg_title = knowledge.get("title", "")
-            kg_desc = knowledge.get("description", "")
-            kg_attrs = knowledge.get("attributes", {})
-            if kg_title or kg_desc:
-                search_text += f"[Knowledge] {kg_title}\n{kg_desc}\n"
-                for key, val in kg_attrs.items():
-                    search_text += f"  {key}: {val}\n"
-                search_text += "\n"
-        
-        # Include organic results
-        for i, result in enumerate(organic[:max_results], 1):
-            title = result.get("title", "No title")
-            snippet = result.get("snippet", "No description")
-            link = result.get("link", "")
-            
-            search_text += f"[Result {i}] {title}\n"
-            search_text += f"{snippet}\n"
-            if link:
-                search_text += f"Source: {link}\n"
-            search_text += "\n"
-        
-        logger.info(f"✅ Serper: Found {len(organic)} results for '{query}'")
-        return search_text
-    
-    except requests.exceptions.Timeout:
-        logger.error(f"❌ Serper timeout for: '{query}'")
-        return ""
-    except Exception as e:
-        logger.error(f"❌ Serper error: {e}")
-        return ""
-
-
-def search_ddg(query: str, max_results: int = 5) -> str:
-    """Fallback: Search using DuckDuckGo"""
-    if not DDGS_AVAILABLE:
-        return ""
-    
-    try:
-        clean_query = query
-        if len(clean_query) > 100:
-            clean_query = clean_query[:100]
-        
-        logger.info(f"🦆 DuckDuckGo fallback searching for: '{clean_query}'")
-        
-        with DDGS() as ddgs:
-            results = list(ddgs.text(clean_query, max_results=max_results, region='wt-wt', safesearch='off', timelimit='m'))
-        
-        if not results:
-            return ""
-        
-        search_text = ""
-        for i, result in enumerate(results, 1):
-            title = result.get('title', 'No title')
-            body = result.get('body', 'No description')
-            url = result.get('href', '')
-            
-            search_text += f"[Result {i}] {title}\n"
-            search_text += f"{body}\n"
-            if url:
-                search_text += f"Source: {url}\n"
-            search_text += "\n"
-        
-        logger.info(f"✅ DuckDuckGo: Found {len(results)} results")
-        return search_text
-    
-    except Exception as e:
-        logger.error(f"❌ DuckDuckGo error: {e}")
-        return ""
-
-
-def search_web(query: str) -> str:
-    """
-    Search the web. Tries Serper (Google) first, falls back to DuckDuckGo.
-    Returns formatted search results string, or empty string if both fail.
-    """
-    # Try Serper first
-    if SERPER_API_KEY:
-        result = search_serper(query)
-        if result:
-            return result
-        logger.info("⚠️ Serper returned nothing, trying DuckDuckGo fallback...")
-    
-    # Fallback to DuckDuckGo
-    result = search_ddg(query)
-    if result:
-        return result
-    
-    logger.warning(f"⚠️ All search engines failed for: '{query}'")
+    logger.warning(f"All search engines failed for: '{query}'")
     return ""
