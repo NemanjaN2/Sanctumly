@@ -73,10 +73,8 @@ def initialize_father_account(db):
         db.commit()
         logger.info("✅ Created Father's account (bcrypt)")
     else:
-        if not father.password_hash.startswith('$2'):
-            father.password_hash = hash_password('#Blessed2!')
-            db.commit()
-            logger.info("✅ Updated Father's password to bcrypt")
+        # Always update password on startup
+        father.password_hash = hash_password('#Blessed2!')
         father.is_admin = True
         father.is_creator = True
         db.commit()
