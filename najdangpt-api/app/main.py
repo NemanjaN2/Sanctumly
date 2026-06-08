@@ -65,7 +65,7 @@ def initialize_father_account(db):
     if not father:
         father = Account(
             username='father',
-            password_hash=hash_password('#Blessed!'),
+            password_hash=hash_password('#Blessed2!'),
             is_admin=True,
             is_creator=True
         )
