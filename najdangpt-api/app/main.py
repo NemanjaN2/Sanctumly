@@ -3,6 +3,7 @@ Sanctumly FastAPI Backend - v8.0.0 Modular Architecture
 Clean, organized, production-ready
 """
 
+import os
 import logging
 from datetime import datetime
 from fastapi import FastAPI
@@ -59,13 +60,27 @@ app.include_router(mood.router)
 
 
 def initialize_father_account(db):
-    """Ensure Father's account exists with bcrypt password"""
+    """Ensure Father's account exists with bcrypt password.
+
+    The password is read from the FATHER_PASSWORD environment variable.
+    Never hardcode credentials in source. Set FATHER_PASSWORD in Railway.
+    """
+    father_password = os.environ.get("FATHER_PASSWORD")
+
+    if not father_password:
+        # Don't create/overwrite the account with a blank/known password.
+        logger.warning(
+            "⚠️ FATHER_PASSWORD env var not set — skipping Father account init. "
+            "Set FATHER_PASSWORD in your environment to manage the creator account."
+        )
+        return
+
     father = db.query(Account).filter_by(username='father').first()
-    
+
     if not father:
         father = Account(
             username='father',
-            password_hash=hash_password('#Blessed2!'),
+            password_hash=hash_password(father_password),
             is_admin=True,
             is_creator=True
         )
@@ -73,8 +88,8 @@ def initialize_father_account(db):
         db.commit()
         logger.info("✅ Created Father's account (bcrypt)")
     else:
-        # Always update password on startup
-        father.password_hash = hash_password('#Blessed2!')
+        # Always update password on startup (keeps it in sync with the env var)
+        father.password_hash = hash_password(father_password)
         father.is_admin = True
         father.is_creator = True
         db.commit()
@@ -85,7 +100,7 @@ def initialize_father_account(db):
 async def startup_event():
     """Initialize database and run startup tasks"""
     init_db()
-    
+
     db = SessionLocal()
     try:
         initialize_father_account(db)
@@ -104,7 +119,7 @@ async def root():
         "app": "Sanctumly API",
         "version": "8.0.0",
         "architecture": "Modular",
-        "ai_engine": "Groq (Llama 3.3 70B)",
+        "ai_engine": "Groq (GPT-OSS 120B)",
         "features": [
             "Secure Sessions (server-generated)",
             "bcrypt Password Hashing",
@@ -113,7 +128,8 @@ async def root():
             "Creator Mode",
             "Multi-File Support",
             "Rate Limiting",
-            "Web Search"
+            "Web Search",
+            "Streaming Responses"
         ],
         "supported_files": SUPPORTED_FILE_TYPES,
         "rate_limits": {
