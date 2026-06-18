@@ -8,3 +8,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
     <App />
   </React.StrictMode>,
 )
+  const splash = document.getElementById('initial-splash');
+  if (splash) {
+    splash.classList.add('hide');
+    setTimeout(() => splash.remove(), 450); // matches the 0.4s CSS transition
+  }
