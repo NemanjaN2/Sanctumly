@@ -11,14 +11,17 @@ FIXED: Context-aware search (uses previous message when user says "search for it
 FIXED: When search fails, model says "I don't know" instead of hallucinating
 FIXED: Long-term memory now actually saved after conversations (was never being written)
 ADDED: URL fetching — Sanctumly can now open and read links users share
+ADDED: /chat/stream — Server-Sent Events streaming for token-by-token responses
 """
 
 import logging
 import os
 import re
+import json
 import base64
 from datetime import datetime, timedelta
 from fastapi import APIRouter, HTTPException, Depends
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import func
 from openai import OpenAI
@@ -140,7 +143,7 @@ def should_search(message: str) -> bool:
 def is_reference_search(message: str) -> bool:
     msg_lower = message.lower().strip()
     reference_patterns = [
-        r'^(pretraži|pretrazi|pogledaj|proveri|nadji|nađi)\s*(internet|net|online)?\s*(pa|i)?\s*(vidi|pogledaj|proveri)?[.!?]?\s*$',
+        r'^(pretraži|pretrazi|pogledaj|proveri|nadji|nађi)\s*(internet|net|online)?\s*(pa|i)?\s*(vidi|pogledaj|proveri)?[.!?]?\s*$',
         r'^(look it up|search for it|google it|find it|check it|search it)[.!?]?\s*$',
         r'^(pretraži|pretrazi|pogledaj)\s*(to|ovo)?[.!?]?\s*$',
     ]
@@ -166,7 +169,7 @@ def extract_search_query(message: str) -> str:
     fillers = [
         r'^(hej|ej|ćao|cao|zdravo|brate|buraz),?\s*',
         r'\b(možeš li|mozes li|molim te|da li možeš|da li mozes)\b\s*',
-        r'\b(pretraži|pretrazi|pogledaj|nađi|nadji|potraži|potrazi|proveri)\s*(mi\s*)?(na internetu\s*|na netu\s*|online\s*)?',
+        r'\b(pretraži|pretrazi|pogledaj|nађi|nadji|potraži|potrazi|proveri)\s*(mi\s*)?(na internetu\s*|na netu\s*|online\s*)?',
         r'\b(reci mi|kaži mi|kazi mi)\s*',
         r'\b(da li znaš|da li znas|znaš li|znas li)\s*',
         r'\b(i vidi|i pogledaj|i proveri|pa vidi|pa pogledaj|pa proveri)\s*',
@@ -280,6 +283,90 @@ PREFERENCES: (how they like to be spoken to, what helps them — comma separated
 
     except Exception as e:
         logger.error(f"⚠️ Memory save failed for {username}: {e}")
+
+
+def build_chat_context(request: ChatRequest, db: Session, is_creator: bool):
+    """
+    Shared context builder used by BOTH /message and /stream.
+    Returns (messages, history_messages, meta) where meta carries flags for logging.
+    Does NOT handle images (caller handles those separately for /message).
+    """
+    username = request.username
+    session_id = sanitize_session_id(request.session_id)
+
+    # ---- URL fetching ----
+    url_context = ""
+    urls = extract_urls(request.message)
+    if urls:
+        for url in urls[:2]:
+            content = fetch_url(url)
+            if content:
+                url_context += content + "\n"
+        if url_context:
+            logger.info(f"🌐 URL fetch: loaded content from {len(urls)} URL(s)")
+
+    # ---- RAG ----
+    rag_context = retrieve_relevant_context(request.message, session_id, db)
+
+    # ---- Memory (therapist only) ----
+    memory_context = ""
+    if request.personality == "therapist":
+        memory = get_conversation_memory(username, db)
+        if memory:
+            memory_context = f"\nWhat you remember about {username}:\n{memory['summary']}\nKey things: {memory['key_facts']}\nTheir preferences: {memory['preferences']}\n"
+
+    # ---- System prompt ----
+    system_prompt = get_system_prompt(is_creator, username, request.personality)
+
+    if url_context:
+        system_prompt += f"\n\nContent fetched from URL(s) the user shared:\n{url_context}"
+    if rag_context:
+        system_prompt += f"\n\nRelevant context from uploaded documents:\n{rag_context}"
+    if memory_context:
+        system_prompt += f"\n\n{memory_context}"
+    if request.personality == "therapist":
+        therapist_context = get_therapist_knowledge_context(db)
+        if therapist_context:
+            system_prompt += f"\n\nProfessional therapeutic guidance (use naturally, don't quote directly):\n{therapist_context}"
+
+    # ---- History ----
+    history_messages = db.query(Message).filter_by(session_id=session_id)\
+        .order_by(Message.timestamp.desc()).limit(12).all()
+
+    messages = [{"role": "system", "content": system_prompt}]
+    for msg in reversed(history_messages):
+        messages.append({
+            "role": "user" if msg.role == "user" else "assistant",
+            "content": msg.content
+        })
+
+    # ---- Web search (skip if URL content already fetched) ----
+    might_need_search = should_search(request.message) and not url_context
+    if might_need_search:
+        if is_reference_search(request.message):
+            previous_topic = get_search_context_from_history(history_messages)
+            search_query = extract_search_query(previous_topic) if previous_topic else extract_search_query(request.message)
+        else:
+            search_query = extract_search_query(request.message)
+
+        logger.info(f"🔍 Search | Query: '{search_query}'")
+        search_result = search_web(search_query)
+        if search_result:
+            system_prompt += f"\n\nWeb search results for reference:\n{search_result}\n\nUse ONLY these search results to answer factual questions. Do not add information beyond what the search results contain. If the results don't fully answer the question, say what you found and note what you're unsure about."
+            logger.info("✅ Web search: Added results to context")
+        else:
+            system_prompt += "\n\nIMPORTANT: The user asked a factual question. Web search was attempted but returned NO results. You MUST NOT guess or make up an answer. Tell the user you tried to search but couldn't find results right now, and suggest they look it up themselves. Do NOT invent dates, facts, or details."
+            logger.info("⚠️ Search failed — injected anti-hallucination instruction")
+        messages[0]["content"] = system_prompt
+
+    meta = {
+        "urls": urls or [],
+        "had_url_context": bool(url_context),
+        "had_rag_context": bool(rag_context),
+        "had_memory": bool(memory_context),
+        "searched": might_need_search,
+    }
+    return messages, history_messages, meta
 
 
 # ============================================================
@@ -397,93 +484,10 @@ async def chat_message(request: ChatRequest, db: Session = Depends(get_db)):
 
     logger.info(f"💬 Chat - User: {username}, Creator: {is_creator}, Mode: {request.personality}, Image: {has_image}")
 
-    # ============================================================
-    # URL FETCHING — read any links the user shared
-    # ============================================================
-    url_context = ""
-    urls = extract_urls(request.message)
-    if urls:
-        for url in urls[:2]:  # max 2 URLs per message
-            content = fetch_url(url)
-            if content:
-                url_context += content + "\n"
-        if url_context:
-            logger.info(f"🌐 URL fetch: loaded content from {len(urls)} URL(s)")
+    # Build shared context (URL fetch, RAG, memory, search, history)
+    messages, history_messages, meta = build_chat_context(request, db, is_creator)
 
-    # Get RAG context
-    rag_context = retrieve_relevant_context(request.message, session_id, db)
-
-    # Get conversation memory - ONLY for therapist mode
-    memory_context = ""
-    if request.personality == "therapist":
-        memory = get_conversation_memory(username, db)
-        if memory:
-            memory_context = f"\nWhat you remember about {username}:\n{memory['summary']}\nKey things: {memory['key_facts']}\nTheir preferences: {memory['preferences']}\n"
-
-    # Get system prompt
-    system_prompt = get_system_prompt(is_creator, username, request.personality)
-
-    if url_context:
-        system_prompt += f"\n\nContent fetched from URL(s) the user shared:\n{url_context}"
-        logger.info("✅ URL content injected into context")
-
-    if rag_context:
-        system_prompt += f"\n\nRelevant context from uploaded documents:\n{rag_context}"
-        logger.info(f"✅ RAG: Retrieved context from documents")
-
-    if memory_context:
-        system_prompt += f"\n\n{memory_context}"
-        logger.info(f"✅ Memory: Loaded user memory (wellness mode)")
-
-    if request.personality == "therapist":
-        therapist_context = get_therapist_knowledge_context(db)
-        if therapist_context:
-            system_prompt += f"\n\nProfessional therapeutic guidance (use naturally, don't quote directly):\n{therapist_context}"
-            logger.info(f"✅ Therapist KB: Loaded professional knowledge")
-
-    # Get conversation history BY SESSION_ID
-    history_messages = db.query(Message).filter_by(session_id=session_id)\
-        .order_by(Message.timestamp.desc()).limit(12).all()
-
-    # Build OpenAI-compatible messages
-    messages = [{"role": "system", "content": system_prompt}]
-    for msg in reversed(history_messages):
-        messages.append({
-            "role": "user" if msg.role == "user" else "assistant",
-            "content": msg.content
-        })
-
-    # ============================================================
-    # SMART WEB SEARCH (Serbian + English, context-aware)
-    # Skip search if we already fetched URL content for this message
-    # ============================================================
-    might_need_search = should_search(request.message) and not url_context
-
-    if might_need_search:
-        if is_reference_search(request.message):
-            previous_topic = get_search_context_from_history(history_messages)
-            if previous_topic:
-                search_query = extract_search_query(previous_topic)
-                logger.info(f"🔍 Reference search | User said: '{request.message}' | Using context: '{search_query}'")
-            else:
-                search_query = extract_search_query(request.message)
-                logger.info(f"🔍 Reference search but no history context, using: '{search_query}'")
-        else:
-            search_query = extract_search_query(request.message)
-            logger.info(f"🔍 Direct search | Original: '{request.message}' | Query: '{search_query}'")
-
-        search_result = search_web(search_query)
-
-        if search_result:
-            system_prompt += f"\n\nWeb search results for reference:\n{search_result}\n\nUse ONLY these search results to answer factual questions. Do not add information beyond what the search results contain. If the results don't fully answer the question, say what you found and note what you're unsure about."
-            messages[0]["content"] = system_prompt
-            logger.info(f"✅ Web search: Added results to context")
-        else:
-            system_prompt += "\n\nIMPORTANT: The user asked a factual question. Web search was attempted but returned NO results. You MUST NOT guess or make up an answer. Tell the user you tried to search but couldn't find results right now, and suggest they look it up themselves. Do NOT invent dates, facts, or details."
-            messages[0]["content"] = system_prompt
-            logger.info(f"⚠️ Search failed — injected anti-hallucination instruction")
-
-    # Build current user message
+    # Build current user message (with image if present)
     if has_image:
         user_content = [
             {"type": "image_url", "image_url": {"url": f"data:{image_mime};base64,{image_b64}"}},
@@ -498,7 +502,7 @@ async def chat_message(request: ChatRequest, db: Session = Depends(get_db)):
     try:
         response = groq_client.chat.completions.create(
             model=model_to_use, messages=messages,
-            temperature=0.7, top_p=0.95, max_tokens=1024,
+            temperature=0.7, top_p=0.95, max_tokens=4096,
         )
         response_text = response.choices[0].message.content
 
@@ -517,18 +521,108 @@ async def chat_message(request: ChatRequest, db: Session = Depends(get_db)):
                 save_memory(username, history_messages, response_text, db)
 
         remaining = "unlimited" if is_creator else max(0, DAILY_MESSAGE_LIMIT - get_daily_message_count(db, username))
-        logger.info(f"✅ Response: {len(response_text)} chars | Remaining: {remaining} | Image: {has_image} | Model: {model_to_use} | Searched: {might_need_search} | URLs: {len(urls) if urls else 0}")
+        logger.info(f"✅ Response: {len(response_text)} chars | Remaining: {remaining} | Image: {has_image} | Model: {model_to_use} | Searched: {meta['searched']} | URLs: {len(meta['urls'])}")
 
         return {
             "response": response_text, "session_id": session_id,
-            "had_rag_context": bool(rag_context), "had_memory": bool(memory_context),
-            "had_url_context": bool(url_context),
+            "had_rag_context": meta["had_rag_context"], "had_memory": meta["had_memory"],
+            "had_url_context": meta["had_url_context"],
             "messages_remaining": remaining
         }
 
     except Exception as e:
         logger.error(f"❌ Error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/stream")
+async def chat_message_stream(request: ChatRequest, db: Session = Depends(get_db)):
+    """
+    Streaming version of /chat/message — returns Server-Sent Events (SSE).
+    Each event is a JSON line:
+      {"type": "token", "content": "..."}            incremental text
+      {"type": "done", "messages_remaining": N}      final, after full text saved
+      {"type": "error", "message": "..."}            on failure
+    Images are NOT supported here (vision is non-streaming) — client falls back to /message.
+    """
+    username = request.username
+    if not validate_username(username):
+        raise HTTPException(status_code=400, detail="Invalid username format")
+
+    session_id = sanitize_session_id(request.session_id)
+
+    if not verify_session_ownership_flexible(session_id, username, db):
+        raise HTTPException(status_code=403, detail="Unauthorized: Invalid session")
+
+    account = db.query(Account).filter_by(username=username.lower()).first()
+    is_creator = account.is_creator if account else False
+
+    check_daily_limit(db, username, is_creator)
+
+    if not check_message_rate_limit(username, db):
+        raise HTTPException(status_code=429, detail="Message rate limit exceeded. Maximum 30 messages per hour.")
+
+    log_message_request(username, db)
+
+    if request.image:
+        raise HTTPException(status_code=400, detail="Image messages must use /chat/message, not /chat/stream")
+
+    logger.info(f"💬 Stream - User: {username}, Creator: {is_creator}, Mode: {request.personality}")
+
+    # Build shared context (URL fetch, RAG, memory, search, history)
+    messages, history_messages, meta = build_chat_context(request, db, is_creator)
+    messages.append({"role": "user", "content": request.message})
+
+    def event_generator():
+        full_text = ""
+        try:
+            stream = groq_client.chat.completions.create(
+                model=GROQ_MODEL,
+                messages=messages,
+                temperature=0.7,
+                top_p=0.95,
+                max_tokens=4096,
+                stream=True,
+            )
+
+            for chunk in stream:
+                delta = chunk.choices[0].delta
+                token = getattr(delta, "content", None)
+                if token:
+                    full_text += token
+                    yield f"data: {json.dumps({'type': 'token', 'content': token})}\n\n"
+
+            # Stream finished — persist both messages
+            user_msg = Message(session_id=session_id, username=username.lower(), role="user", content=request.message)
+            assistant_msg = Message(session_id=session_id, username=username.lower(), role="assistant", content=full_text)
+            db.add(user_msg)
+            db.add(assistant_msg)
+            db.commit()
+
+            # Long-term memory (therapist mode), same cadence as /message
+            if request.personality == "therapist":
+                user_msg_count = get_daily_message_count(db, username)
+                if user_msg_count % 6 == 0:
+                    save_memory(username, history_messages, full_text, db)
+
+            remaining = "unlimited" if is_creator else max(0, DAILY_MESSAGE_LIMIT - get_daily_message_count(db, username))
+            logger.info(f"✅ Stream done: {len(full_text)} chars | Remaining: {remaining} | Searched: {meta['searched']} | URLs: {len(meta['urls'])}")
+
+            yield f"data: {json.dumps({'type': 'done', 'messages_remaining': remaining, 'session_id': session_id})}\n\n"
+
+        except Exception as e:
+            logger.error(f"❌ Stream error: {e}")
+            yield f"data: {json.dumps({'type': 'error', 'message': str(e)})}\n\n"
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # disable proxy buffering (important on Railway)
+        },
+    )
 
 
 @router.get("/history/{username}")
