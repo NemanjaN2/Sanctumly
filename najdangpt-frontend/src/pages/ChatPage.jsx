@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import { sendMessage, clearChat, submitFeedback, getConversations, getChatHistory } from '../api/chat'
+import { sendMessage, streamMessage, clearChat, submitFeedback, getConversations, getChatHistory } from '../api/chat'
 import { uploadDocument } from '../api/upload'
 import { marked } from 'marked'
 
@@ -123,6 +123,9 @@ export default function ChatPage({ user, onLogout }) {
   }
   const removePendingImage = () => { if (pendingImage?.preview) URL.revokeObjectURL(pendingImage.preview); setPendingImage(null) }
 
+  // ══════════════════════════════
+  // SEND — streams text replies, falls back to non-streaming for images
+  // ══════════════════════════════
   const handleSend = async (text=null) => {
     const t = text||input; if ((!t.trim()&&!pendingImage)||loading) return
     const display = pendingImage ? `📷 ${t||'Analyze this image'}` : t
@@ -130,12 +133,45 @@ export default function ChatPage({ user, onLogout }) {
     const img64 = pendingImage?.base64||null
     setMessages(p=>[...p,{role:'user',content:display,timestamp:new Date().toISOString(),imagePreview:pendingImage?.preview||null}])
     setInput(''); removePendingImage(); setLoading(true); setError('')
+
+    // Images can't stream (vision endpoint) — use the normal path
+    if (img64) {
+      try {
+        const r = await sendMessage(actual,sessionId,user.username,personality,img64)
+        setMessages(p=>[...p,{role:'assistant',content:r.response,timestamp:new Date().toISOString()}])
+        fetchConversations()
+      } catch { setError('Failed to send'); setMessages(p=>[...p,{role:'assistant',content:'Sorry, something went wrong.',timestamp:new Date().toISOString()}]) }
+      finally { setLoading(false) }
+      return
+    }
+
+    // Streaming path: add an empty assistant message, then fill it as tokens arrive
+    const assistantTs = new Date().toISOString()
+    setMessages(p=>[...p,{role:'assistant',content:'',timestamp:assistantTs,streaming:true}])
     try {
-      const r = await sendMessage(actual,sessionId,user.username,personality,img64)
-      setMessages(p=>[...p,{role:'assistant',content:r.response,timestamp:new Date().toISOString()}])
+      await streamMessage(actual, sessionId, user.username, personality, (token) => {
+        setMessages(p => {
+          const next = [...p]
+          for (let i = next.length - 1; i >= 0; i--) {
+            if (next[i].role === 'assistant' && next[i].streaming) {
+              next[i] = { ...next[i], content: next[i].content + token }
+              break
+            }
+          }
+          return next
+        })
+      })
+      setMessages(p => p.map(m => m.streaming ? { ...m, streaming:false } : m))
       fetchConversations()
-    } catch { setError('Failed to send'); setMessages(p=>[...p,{role:'assistant',content:'Sorry, something went wrong.',timestamp:new Date().toISOString()}]) }
-    finally { setLoading(false) }
+    } catch (e) {
+      setMessages(p => {
+        const next = p.filter(m => !(m.role==='assistant' && m.streaming && !m.content))
+        return next.map(m => m.streaming ? { ...m, streaming:false } : m)
+      })
+      setError(e.message || 'Failed to send')
+    } finally {
+      setLoading(false)
+    }
   }
 
   const handleClearChat = async () => {
@@ -356,11 +392,11 @@ export default function ChatPage({ user, onLogout }) {
                     onMouseLeave={() => setHoveredMsg(null)}>
                     {m.imagePreview && <img src={m.imagePreview} alt="" className="msg-preview" />}
                     {m.role === 'assistant' ? (
-                      <div className="md" dangerouslySetInnerHTML={{ __html: marked(m.content) }} />
+                      <div className="md" dangerouslySetInnerHTML={{ __html: marked(m.content || '') }} />
                     ) : (
                       <div className="msg-body">{m.content}</div>
                     )}
-                    {m.role==='assistant' && hoveredMsg===i && (
+                    {m.role==='assistant' && hoveredMsg===i && !m.streaming && (
                       <div className="msg-toolbar">
                         <button onClick={() => handleCopy(m.content)}>Copy</button>
                         <button className={speakingMessageIndex===i?'active':''} onClick={() => handleReadAloud(i,m.content)}>
@@ -370,7 +406,7 @@ export default function ChatPage({ user, onLogout }) {
                     )}
                   </div>
                 ))}
-                {loading && (
+                {loading && !messages.some(m => m.role==='assistant' && m.streaming && m.content) && (
                   <div className="msg assistant">
                     <div className="thinking"><span>Thinking</span><span className="dots"><i/><i/><i/></span></div>
                   </div>
