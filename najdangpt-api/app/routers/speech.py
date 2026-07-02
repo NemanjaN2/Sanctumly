@@ -1,18 +1,25 @@
 """
 Speech routes - Speech-to-Text and Text-to-Speech
 Uses Groq Whisper for transcription, edge-tts for Serbian TTS, Groq Orpheus for English TTS
+
+SECURITY: Both endpoints require a valid session (they spend your paid Groq
+quota) and are counted against the per-user message rate limit. Raw exceptions
+are logged server-side but never returned to the client.
 """
 import logging
 import base64
-import io
 import tempfile
 import os
-import asyncio
-from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi import APIRouter, HTTPException, UploadFile, File, Depends
 from pydantic import BaseModel
 from typing import Optional
 from openai import OpenAI
+from sqlalchemy.orm import Session
+
 from app.config import GROQ_API_KEY
+from app.database import get_db
+from app.models.account import Account
+from app.security import require_user, check_message_rate_limit, log_message_request
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/speech", tags=["Speech"])
@@ -23,6 +30,8 @@ groq_client = OpenAI(
     api_key=GROQ_API_KEY
 )
 
+MAX_AUDIO_BYTES = 20 * 1024 * 1024  # 20MB cap on uploaded audio
+
 
 class TTSRequest(BaseModel):
     text: str
@@ -30,37 +39,40 @@ class TTSRequest(BaseModel):
     voice_gender: Optional[str] = "female"
 
 
+def _enforce_rate_limit(account: Account, db: Session):
+    """Count speech calls against the per-user message limit (creators exempt)."""
+    if not check_message_rate_limit(account.username, db):
+        raise HTTPException(status_code=429, detail="Rate limit exceeded. Please wait.")
+    log_message_request(account.username, db)
+
+
 @router.post("/transcribe")
-async def transcribe_audio(file: UploadFile = File(...)):
-    """Transcribe audio to text using Groq Whisper"""
+async def transcribe_audio(
+    file: UploadFile = File(...),
+    account: Account = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """Transcribe audio to text using Groq Whisper (authenticated + rate limited)."""
+    _enforce_rate_limit(account, db)
     try:
         audio_content = await file.read()
 
-        logger.info(f"🎤 Received audio: {file.filename}, type: {file.content_type}, size: {len(audio_content)} bytes")
+        if len(audio_content) > MAX_AUDIO_BYTES:
+            raise HTTPException(status_code=413, detail="Audio file too large")
 
-        # Check minimum size
+        logger.info(f"🎤 Audio from {account.username}: {file.content_type}, {len(audio_content)} bytes")
+
         if len(audio_content) < 1000:
-            logger.warning(f"⚠️ Audio too small: {len(audio_content)} bytes")
-            return {
-                "success": False,
-                "transcript": "",
-                "error": "Recording too short"
-            }
+            return {"success": False, "transcript": "", "error": "Recording too short"}
 
-        # Write to temp file (Groq needs a file object with a name)
         suffix = ".m4a"
         if file.filename:
             fn = file.filename.lower()
-            if ".webm" in fn:
-                suffix = ".webm"
-            elif ".wav" in fn:
-                suffix = ".wav"
-            elif ".mp3" in fn:
-                suffix = ".mp3"
-            elif ".ogg" in fn or ".opus" in fn:
-                suffix = ".ogg"
-            elif ".flac" in fn:
-                suffix = ".flac"
+            if ".webm" in fn: suffix = ".webm"
+            elif ".wav" in fn: suffix = ".wav"
+            elif ".mp3" in fn: suffix = ".mp3"
+            elif ".ogg" in fn or ".opus" in fn: suffix = ".ogg"
+            elif ".flac" in fn: suffix = ".flac"
 
         tmp = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
         tmp.write(audio_content)
@@ -78,53 +90,37 @@ async def transcribe_audio(file: UploadFile = File(...)):
             transcript = response.text.strip() if hasattr(response, 'text') else ""
 
             if not transcript:
-                logger.warning("⚠️ No speech detected in audio")
-                return {
-                    "success": False,
-                    "transcript": "",
-                    "error": "No speech detected"
-                }
+                return {"success": False, "transcript": "", "error": "No speech detected"}
 
-            logger.info(f"🎤 Transcribed: '{transcript[:50]}...'")
-
-            return {
-                "success": True,
-                "transcript": transcript,
-                "confidence": 0.95
-            }
-
+            logger.info(f"🎤 Transcribed for {account.username}: '{transcript[:50]}...'")
+            return {"success": True, "transcript": transcript, "confidence": 0.95}
         finally:
             os.unlink(tmp.name)
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"❌ Transcription error: {e}")
-        return {
-            "success": False,
-            "transcript": "",
-            "error": str(e)
-        }
+        # Generic message — don't leak internals to the client
+        return {"success": False, "transcript": "", "error": "Transcription failed"}
 
 
 async def _tts_edge(text: str, language: str) -> bytes:
-    """Generate TTS audio using edge-tts for Serbian (Croatian voice for better pronunciation)"""
+    """TTS via edge-tts (Croatian voice for Serbian)."""
     import edge_tts
 
     if language.startswith("sr"):
-        # Croatian female - same language family, much better Serbian pronunciation than SophieNeural
         voice = "hr-HR-GabrijelaNeural"
     else:
-        # Fallback English female if Groq fails
         voice = "en-US-AriaNeural"
 
     tmp_path = tempfile.mktemp(suffix=".mp3")
     try:
         communicate = edge_tts.Communicate(text, voice)
         await communicate.save(tmp_path)
-
         with open(tmp_path, "rb") as f:
             audio_bytes = f.read()
-
-        logger.info(f"🔊 edge-tts: Generated {len(audio_bytes)} bytes with voice {voice}")
+        logger.info(f"🔊 edge-tts: {len(audio_bytes)} bytes ({voice})")
         return audio_bytes
     finally:
         if os.path.exists(tmp_path):
@@ -132,7 +128,7 @@ async def _tts_edge(text: str, language: str) -> bytes:
 
 
 async def _tts_groq(text: str) -> bytes:
-    """Generate TTS audio using Groq Orpheus (English, mature female voice)"""
+    """TTS via Groq Orpheus (English)."""
     response = groq_client.audio.speech.create(
         model="canopylabs/orpheus-v1-english",
         input=text[:10000],
@@ -140,23 +136,26 @@ async def _tts_groq(text: str) -> bytes:
         response_format="mp3"
     )
     audio_bytes = response.read()
-    logger.info(f"🔊 Groq Orpheus: Generated {len(audio_bytes)} bytes with voice autumn")
+    logger.info(f"🔊 Groq Orpheus: {len(audio_bytes)} bytes")
     return audio_bytes
 
 
 @router.post("/tts")
-async def text_to_speech(request: TTSRequest):
-    """Convert text to speech - uses edge-tts for Serbian, Groq Orpheus for English"""
+async def text_to_speech(
+    request: TTSRequest,
+    account: Account = Depends(require_user),
+    db: Session = Depends(get_db),
+):
+    """Text to speech (authenticated + rate limited)."""
+    _enforce_rate_limit(account, db)
     try:
         text = request.text[:5000] if len(request.text) > 5000 else request.text
 
         if request.language and request.language.startswith("sr"):
-            # Serbian: use edge-tts with Croatian voice (better pronunciation)
             audio_bytes = await _tts_edge(text, request.language)
             voice_used = "hr-HR-GabrijelaNeural"
             language_code = "sr-RS"
         else:
-            # English: Groq Orpheus first, fall back to edge-tts
             try:
                 audio_bytes = await _tts_groq(text)
                 voice_used = "orpheus-autumn"
@@ -168,8 +167,7 @@ async def text_to_speech(request: TTSRequest):
                 language_code = "en-US"
 
         audio_base64 = base64.b64encode(audio_bytes).decode('utf-8')
-
-        logger.info(f"🔊 TTS: Generated {len(audio_bytes)} bytes for {language_code} via {voice_used}")
+        logger.info(f"🔊 TTS for {account.username}: {len(audio_bytes)} bytes ({language_code})")
 
         return {
             "success": True,
@@ -178,15 +176,14 @@ async def text_to_speech(request: TTSRequest):
             "language": language_code,
             "voice": voice_used
         }
-
     except Exception as e:
         logger.error(f"❌ TTS error: {e}")
-        raise HTTPException(status_code=500, detail=f"TTS failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="TTS failed")
 
 
 @router.get("/voices")
-async def list_voices():
-    """List available TTS voices"""
+async def list_voices(_account: Account = Depends(require_user)):
+    """List available TTS voices (authenticated)."""
     return {
         "voices": [
             {"code": "en-US", "name": "English (US)", "voice": "autumn (female)", "engine": "Groq Orpheus"},
