@@ -15,6 +15,7 @@ from app.security.rate_limit import (
     cleanup_old_rate_limit_logs,
 )
 from app.security.password import hash_password, verify_password
+from app.security.dependencies import require_user, require_creator, require_admin
 
 __all__ = [
     "validate_username",
@@ -32,4 +33,7 @@ __all__ = [
     "cleanup_old_rate_limit_logs",
     "hash_password",
     "verify_password",
+    "require_user",
+    "require_creator",
+    "require_admin",
 ]
