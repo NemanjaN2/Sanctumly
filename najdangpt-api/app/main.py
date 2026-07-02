@@ -31,21 +31,14 @@ app = FastAPI(
     version="8.0.0"
 )
 
-ALLOWED_ORIGINS = [
-    "https://sanctumly.space",
-    "https://www.sanctumly.space",
-    "https://najdangpt.space",
-    "https://www.najdangpt.space",
-    "http://localhost:3000",
-    "http://localhost:5173",
-]
-
+# CORS — single source of truth is app/config.ALLOWED_ORIGINS (no wildcard).
+# Do NOT redefine the list here; edit config.py so client and server agree.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["Authorization", "Content-Type"],
 )
 
 # Register routers
@@ -68,7 +61,6 @@ def initialize_father_account(db):
     father_password = os.environ.get("FATHER_PASSWORD")
 
     if not father_password:
-        # Don't create/overwrite the account with a blank/known password.
         logger.warning(
             "⚠️ FATHER_PASSWORD env var not set — skipping Father account init. "
             "Set FATHER_PASSWORD in your environment to manage the creator account."
@@ -88,7 +80,6 @@ def initialize_father_account(db):
         db.commit()
         logger.info("✅ Created Father's account (bcrypt)")
     else:
-        # Always update password on startup (keeps it in sync with the env var)
         father.password_hash = hash_password(father_password)
         father.is_admin = True
         father.is_creator = True
@@ -107,7 +98,7 @@ async def startup_event():
         cleanup_old_rate_limit_logs(db)
         cleanup_expired_sessions(db)
         logger.info("🚀 Sanctumly API v8.0.0 - Modular Architecture")
-        logger.info("🔒 Security: bcrypt passwords, secure sessions, no CORS wildcard")
+        logger.info("🔒 Security: bcrypt passwords, session-gated admin, no CORS wildcard")
     finally:
         db.close()
 
@@ -143,7 +134,7 @@ async def root():
             "session_expiry": f"{SESSION_EXPIRY_DAYS} days",
             "cors": "Restricted (no wildcard)",
             "file_size_limit": f"{MAX_FILE_SIZE // (1024*1024)}MB",
-            "brute_force_protection": "10 attempts per hour"
+            "brute_force_protection": "5 attempts per hour"
         },
         "status": "operational"
     }
