@@ -36,6 +36,7 @@ from app.security import (
     verify_session_ownership_flexible,
     check_message_rate_limit,
     log_message_request,
+    require_user,
 )
 from app.services import retrieve_relevant_context, search_web, fetch_url, extract_urls
 from app.services.memory import get_conversation_memory, update_conversation_memory
@@ -374,9 +375,11 @@ def build_chat_context(request: ChatRequest, db: Session, is_creator: bool):
 # ============================================================
 
 @router.get("/rate-limit/status/{username}")
-async def get_rate_limit_status(username: str, db: Session = Depends(get_db)):
+async def get_rate_limit_status(username: str, account: Account = Depends(require_user), db: Session = Depends(get_db)):
     if not validate_username(username):
         raise HTTPException(status_code=400, detail="Invalid username")
+    if not account.is_creator and account.username.lower() != username.lower():
+        raise HTTPException(status_code=403, detail="Forbidden")
     account = db.query(Account).filter_by(username=username.lower()).first()
     if not account:
         raise HTTPException(status_code=404, detail="User not found")
@@ -398,9 +401,11 @@ async def get_rate_limit_status(username: str, db: Session = Depends(get_db)):
 
 
 @router.get("/conversations/{username}")
-async def get_conversations(username: str, limit: int = 30, db: Session = Depends(get_db)):
+async def get_conversations(username: str, limit: int = 30, account: Account = Depends(require_user), db: Session = Depends(get_db)):
     if not validate_username(username):
         raise HTTPException(status_code=400, detail="Invalid username")
+    if not account.is_creator and account.username.lower() != username.lower():
+        raise HTTPException(status_code=403, detail="Forbidden")
     session_stats = db.query(
         Message.session_id,
         func.min(Message.timestamp).label('first_message_at'),
@@ -430,8 +435,14 @@ async def get_conversations(username: str, limit: int = 30, db: Session = Depend
 
 
 @router.get("/history/session/{session_id}")
-async def get_session_history(session_id: str, limit: int = 100, db: Session = Depends(get_db)):
+async def get_session_history(session_id: str, limit: int = 100, account: Account = Depends(require_user), db: Session = Depends(get_db)):
     session_id = sanitize_session_id(session_id)
+    # Only return this session if it belongs to the caller (creators may read any)
+    if not account.is_creator:
+        owns = db.query(Message).filter_by(session_id=session_id, username=account.username.lower()).first()
+        any_msgs = db.query(Message).filter_by(session_id=session_id).first()
+        if any_msgs and not owns:
+            raise HTTPException(status_code=403, detail="Forbidden")
     messages = db.query(Message).filter_by(session_id=session_id)\
         .order_by(Message.timestamp.desc()).limit(limit).all()
     return {
@@ -626,9 +637,11 @@ async def chat_message_stream(request: ChatRequest, db: Session = Depends(get_db
 
 
 @router.get("/history/{username}")
-async def get_chat_history(username: str, limit: int = 50, db: Session = Depends(get_db)):
+async def get_chat_history(username: str, limit: int = 50, account: Account = Depends(require_user), db: Session = Depends(get_db)):
     if not validate_username(username):
         raise HTTPException(status_code=400, detail="Invalid username")
+    if not account.is_creator and account.username.lower() != username.lower():
+        raise HTTPException(status_code=403, detail="Forbidden")
     messages = db.query(Message).filter_by(username=username.lower())\
         .order_by(Message.timestamp.desc()).limit(limit).all()
     return {
@@ -640,8 +653,13 @@ async def get_chat_history(username: str, limit: int = 50, db: Session = Depends
 
 
 @router.delete("/clear/{session_id}")
-async def clear_chat(session_id: str, db: Session = Depends(get_db)):
+async def clear_chat(session_id: str, account: Account = Depends(require_user), db: Session = Depends(get_db)):
     session_id = sanitize_session_id(session_id)
+    if not account.is_creator:
+        owns = db.query(Message).filter_by(session_id=session_id, username=account.username.lower()).first()
+        any_msgs = db.query(Message).filter_by(session_id=session_id).first()
+        if any_msgs and not owns:
+            raise HTTPException(status_code=403, detail="Forbidden")
     deleted = db.query(Message).filter_by(session_id=session_id).delete()
     db.commit()
     logger.info(f"🗑️ Cleared {deleted} messages for session: {session_id[:30]}...")
