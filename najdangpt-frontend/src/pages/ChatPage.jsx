@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { Link } from 'react-router-dom'
-import { sendMessage, streamMessage, clearChat, submitFeedback, getConversations, getChatHistory } from '../api/chat'
+import { sendMessage, streamMessage, clearChat, submitFeedback, getConversations, getChatHistory, authHeaders } from '../api/chat'
 import { uploadDocument } from '../api/upload'
 import { marked } from 'marked'
 
@@ -199,7 +199,8 @@ export default function ChatPage({ user, onLogout }) {
     if (speakingMessageIndex===i) { setSpeakingMessageIndex(null); return }
     setSpeakingMessageIndex(i)
     try {
-      const r = await fetch(`${import.meta.env.VITE_API_URL||'https://sanctumly-production.up.railway.app'}/speech/tts`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:c,language:ttsLanguage,voice_gender:'female'})})
+      const r = await fetch(`${import.meta.env.VITE_API_URL||'https://sanctumly-production.up.railway.app'}/speech/tts`,{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({text:c,language:ttsLanguage,voice_gender:'female'})})
+      if (r.status===401) { setError('Session expired — please log out and log in again'); setSpeakingMessageIndex(null); return }
       if (!r.ok) throw 0
       const d=await r.json()
       const b=new Blob([Uint8Array.from(atob(d.audio),c=>c.charCodeAt(0))],{type:'audio/mp3'})
@@ -208,7 +209,7 @@ export default function ChatPage({ user, onLogout }) {
       a.onended=()=>{setSpeakingMessageIndex(null);URL.revokeObjectURL(u);currentAudioRef.current=null}
       a.onerror=()=>{setSpeakingMessageIndex(null);currentAudioRef.current=null}
       a.play()
-    } catch { setSpeakingMessageIndex(null) }
+    } catch { setError('Read aloud failed'); setSpeakingMessageIndex(null) }
   }
 
   useEffect(()=>{return()=>{if(currentAudioRef.current){currentAudioRef.current.pause();currentAudioRef.current=null}}},[])
@@ -232,9 +233,10 @@ export default function ChatPage({ user, onLogout }) {
 
   const transcribeAudio = async (b) => {
     try { setLoading(true); const fd=new FormData(); fd.append('file',b,'audio.webm')
-      const r=await fetch(`${import.meta.env.VITE_API_URL||'https://sanctumly-production.up.railway.app'}/speech/transcribe`,{method:'POST',body:fd})
+      const r=await fetch(`${import.meta.env.VITE_API_URL||'https://sanctumly-production.up.railway.app'}/speech/transcribe`,{method:'POST',headers:{...authHeaders()},body:fd})
+      if(r.status===401){setError('Session expired — please log out and log in again');return}
       if(!r.ok) throw 0; const d=await r.json()
-      if(d.success&&d.transcript) setInput(d.transcript); else setError('No speech detected')
+      if(d.success&&d.transcript) setInput(d.transcript); else setError(d.error||'No speech detected')
     } catch { setError('Transcription failed') }
     finally { setLoading(false); setIsRecording(false); setMediaRecorder(null) }
   }
@@ -258,9 +260,10 @@ export default function ChatPage({ user, onLogout }) {
   const processVoiceInput = async (b) => {
     try { setVoiceState('thinking')
       const fd=new FormData(); fd.append('file',b,`audio.${b.type.includes('mp4')?'mp4':'webm'}`)
-      const tr=await fetch(`${import.meta.env.VITE_API_URL||'https://sanctumly-production.up.railway.app'}/speech/transcribe`,{method:'POST',body:fd})
+      const tr=await fetch(`${import.meta.env.VITE_API_URL||'https://sanctumly-production.up.railway.app'}/speech/transcribe`,{method:'POST',headers:{...authHeaders()},body:fd})
+      if(tr.status===401){setError('Session expired — please log out and log in again');setVoiceState('idle');return}
       if(!tr.ok) throw 0; const td=await tr.json()
-      if(!td.success||!td.transcript){setError('No speech');setVoiceState('idle');return}
+      if(!td.success||!td.transcript){setError(td.error||'No speech');setVoiceState('idle');return}
       setMessages(p=>[...p,{role:'user',content:td.transcript,timestamp:new Date().toISOString()}])
       const cr=await sendMessage(td.transcript,sessionId,user.username,personality)
       setMessages(p=>[...p,{role:'assistant',content:cr.response,timestamp:new Date().toISOString()}])
@@ -270,7 +273,8 @@ export default function ChatPage({ user, onLogout }) {
 
   const speakResponse = async (t) => {
     try {
-      const r=await fetch(`${import.meta.env.VITE_API_URL||'https://sanctumly-production.up.railway.app'}/speech/tts`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:t,language:ttsLanguage,voice_gender:'female'})})
+      const r=await fetch(`${import.meta.env.VITE_API_URL||'https://sanctumly-production.up.railway.app'}/speech/tts`,{method:'POST',headers:{'Content-Type':'application/json',...authHeaders()},body:JSON.stringify({text:t,language:ttsLanguage,voice_gender:'female'})})
+      if(r.status===401){setError('Session expired — please log out and log in again');setVoiceState('idle');return}
       if(!r.ok) throw 0; const d=await r.json()
       const b=new Blob([Uint8Array.from(atob(d.audio),c=>c.charCodeAt(0))],{type:'audio/mp3'})
       const u=URL.createObjectURL(b),a=new Audio(u); currentAudioRef.current=a
