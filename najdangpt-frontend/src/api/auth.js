@@ -6,13 +6,13 @@ export async function login(username, password) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username, password }),
   })
-
   if (!response.ok) {
     const error = await response.json()
     throw new Error(error.detail || 'Login failed')
   }
-
-  return response.json()
+  const data = await response.json()
+  if (data.session_id) localStorage.setItem('sanctumly_auth_token', data.session_id)
+  return data
 }
 
 export async function signup(username, password, email) {
@@ -21,11 +21,11 @@ export async function signup(username, password, email) {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ username, password, email }),
   })
-
   if (!response.ok) {
     const error = await response.json()
     throw new Error(error.detail || 'Signup failed')
   }
-
-  return response.json()
+  const data = await response.json()
+  if (data.session_id) localStorage.setItem('sanctumly_auth_token', data.session_id)
+  return data
 }
