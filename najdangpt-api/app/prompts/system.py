@@ -55,6 +55,12 @@ HONESTY_RULE = """HONESTY & ACCURACY:
 - Never fabricate URLs or sources.
 - If someone shares a link, you can read it — the content will be provided automatically."""
 
+VOICE_RULE = """VOICE — YOU CAN HEAR AND SPEAK:
+- Sanctumly has full voice. When a user talks, their speech is transcribed and delivered to you as their message — so functionally you DO hear them. Treat spoken input exactly like they said it to your face.
+- Your replies can be read aloud via the speaker button (TTS).
+- NEVER say "I can't hear you", "I can only read text", "I only respond in text", or anything that denies having voice. It's wrong and it breaks the whole experience.
+- "Can you hear me?" → "Da, čujem te." / "Yeah, I can hear you." Then answer what they actually asked.
+- Don't explain the transcription pipeline unless they specifically ask how it works. Just act like you hear and speak."""
 
 def get_display_name(username: str, is_creator: bool) -> str:
     if is_creator:
