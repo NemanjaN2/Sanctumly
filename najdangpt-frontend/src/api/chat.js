@@ -1,14 +1,37 @@
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://sanctumly-production.up.railway.app'
 
+// ── Auth ─────────────────────────────────────────────────────────────
+// Backend v8 gates protected routes behind require_user, which validates
+// the SERVER-issued login session (session_<user>_<ts>_<random>) sent as
+// a Bearer token. This is stored separately from the chat session_id,
+// because ChatPage generates local chat session ids that are NOT valid
+// auth tokens.
+const AUTH_KEY = 'sanctumly_auth_token'
+
+export function setAuthToken(token) {
+  if (token) localStorage.setItem(AUTH_KEY, token)
+}
+
+export function clearAuthToken() {
+  localStorage.removeItem(AUTH_KEY)
+}
+
+export function authHeaders() {
+  const t = localStorage.getItem(AUTH_KEY)
+  return t ? { 'Authorization': `Bearer ${t}` } : {}
+}
+// ─────────────────────────────────────────────────────────────────────
+
 export async function sendMessage(message, sessionId, username, personality = 'default', image = null) {
   try {
     const body = { message, session_id: sessionId, username, personality }
     if (image) body.image = image
     const response = await fetch(`${API_BASE_URL}/chat/message`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify(body),
     })
+    if (response.status === 401) throw new Error('Session expired — please log out and log in again')
     if (!response.ok) throw new Error('Failed to send message')
     return await response.json()
   } catch (error) {
@@ -26,7 +49,7 @@ export async function streamMessage(message, sessionId, username, personality = 
   try {
     response = await fetch(`${API_BASE_URL}/chat/stream`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body,
     })
   } catch (err) {
@@ -90,7 +113,10 @@ export async function streamMessage(message, sessionId, username, personality = 
 
 export async function clearChat(sessionId) {
   try {
-    const response = await fetch(`${API_BASE_URL}/chat/clear/${sessionId}`, { method: 'DELETE' })
+    const response = await fetch(`${API_BASE_URL}/chat/clear/${sessionId}`, {
+      method: 'DELETE',
+      headers: { ...authHeaders() },
+    })
     if (!response.ok) throw new Error('Failed to clear chat')
     return await response.json()
   } catch (error) {
@@ -103,7 +129,7 @@ export async function submitFeedback(messageContent, feedbackType, sessionId, us
   try {
     const response = await fetch(`${API_BASE_URL}/feedback/submit`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...authHeaders() },
       body: JSON.stringify({
         session_id: sessionId,
         message_content: messageContent,
@@ -121,7 +147,9 @@ export async function submitFeedback(messageContent, feedbackType, sessionId, us
 
 export async function getFeedbackStats() {
   try {
-    const response = await fetch(`${API_BASE_URL}/feedback/stats`)
+    const response = await fetch(`${API_BASE_URL}/feedback/stats`, {
+      headers: { ...authHeaders() },
+    })
     if (!response.ok) throw new Error('Failed to get feedback stats')
     return await response.json()
   } catch (error) {
@@ -132,7 +160,9 @@ export async function getFeedbackStats() {
 
 export async function getConversations(username) {
   try {
-    const response = await fetch(`${API_BASE_URL}/chat/conversations/${username}`)
+    const response = await fetch(`${API_BASE_URL}/chat/conversations/${username}`, {
+      headers: { ...authHeaders() },
+    })
     if (!response.ok) throw new Error('Failed to fetch conversations')
     const data = await response.json()
     return data.conversations || []
@@ -144,7 +174,9 @@ export async function getConversations(username) {
 
 export async function getChatHistory(sessionId, limit = 100) {
   try {
-    const response = await fetch(`${API_BASE_URL}/chat/history/session/${sessionId}?limit=${limit}`)
+    const response = await fetch(`${API_BASE_URL}/chat/history/session/${sessionId}?limit=${limit}`, {
+      headers: { ...authHeaders() },
+    })
     if (!response.ok) throw new Error('Failed to fetch chat history')
     const data = await response.json()
     return data.messages || []
