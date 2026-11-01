@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { sendMessage, streamMessage, clearChat, submitFeedback, getConversations, getChatHistory, authHeaders } from '../api/chat'
 import { uploadDocument } from '../api/upload'
 import { marked } from 'marked'
+import NeuralOrb from '../components/NeuralOrb'
 
 // Render fenced code blocks with a dedicated copy control. The button reads
 // from its own <pre><code> element, so it never copies the surrounding reply.
@@ -68,6 +69,11 @@ export default function ChatPage({ user, onLogout }) {
   const fileInputRef = useRef(null)
   const imageInputRef = useRef(null)
   const currentAudioRef = useRef(null)
+  const voiceAudioContextRef = useRef(null)
+  const voiceAnalyserRef = useRef(null)
+  const voiceSourceRef = useRef(null)
+  const voiceMeterFrameRef = useRef(0)
+  const voiceAudioLevelRef = useRef(0)
   const textareaRef = useRef(null)
 
   const personalities = [
@@ -275,7 +281,13 @@ export default function ChatPage({ user, onLogout }) {
     } catch { setError('Read aloud failed'); setSpeakingMessageIndex(null) }
   }
 
-  useEffect(()=>{return()=>{if(currentAudioRef.current){currentAudioRef.current.pause();currentAudioRef.current=null}}},[])
+  useEffect(()=>()=>{
+    if(currentAudioRef.current){currentAudioRef.current.pause();currentAudioRef.current=null}
+    if(voiceMeterFrameRef.current) cancelAnimationFrame(voiceMeterFrameRef.current)
+    try { voiceSourceRef.current?.disconnect() } catch {}
+    const audioContext = voiceAudioContextRef.current
+    if(audioContext && audioContext.state !== 'closed') audioContext.close().catch(()=>{})
+  },[])
 
   useEffect(()=>{
     const h=(e)=>{e.preventDefault();setDeferredPrompt(e);setShowInstallPrompt(true)}
@@ -305,18 +317,63 @@ export default function ChatPage({ user, onLogout }) {
   }
 
   const startVoiceMode=()=>{setVoiceMode(true);setVoiceState('idle')}
-  const stopVoiceMode=()=>{setVoiceMode(false);setVoiceState('idle');mediaRecorder?.stop();if(currentAudioRef.current){currentAudioRef.current.pause();currentAudioRef.current=null};setSpeakingMessageIndex(null)}
+
+  const stopVoiceMeter = () => {
+    if(voiceMeterFrameRef.current) cancelAnimationFrame(voiceMeterFrameRef.current)
+    voiceMeterFrameRef.current=0
+    try { voiceSourceRef.current?.disconnect() } catch {}
+    voiceSourceRef.current=null
+    voiceAnalyserRef.current=null
+    const audioContext=voiceAudioContextRef.current
+    voiceAudioContextRef.current=null
+    if(audioContext && audioContext.state!=='closed') audioContext.close().catch(()=>{})
+    voiceAudioLevelRef.current=0
+  }
+
+  const startVoiceMeter = async (stream) => {
+    const AudioContextClass=window.AudioContext || window.webkitAudioContext
+    if(!AudioContextClass) return
+    try {
+      const audioContext=new AudioContextClass()
+      await audioContext.resume()
+      const analyser=audioContext.createAnalyser()
+      analyser.fftSize=256
+      analyser.smoothingTimeConstant=0.72
+      const source=audioContext.createMediaStreamSource(stream)
+      source.connect(analyser)
+      voiceAudioContextRef.current=audioContext
+      voiceAnalyserRef.current=analyser
+      voiceSourceRef.current=source
+      const samples=new Uint8Array(analyser.fftSize)
+      const update=()=>{
+        if(!voiceAnalyserRef.current) return
+        analyser.getByteTimeDomainData(samples)
+        let energy=0
+        for(let i=0;i<samples.length;i+=1){const sample=(samples[i]-128)/128;energy+=sample*sample}
+        const rms=Math.sqrt(energy/samples.length)
+        voiceAudioLevelRef.current=Math.max(0,Math.min(1,(rms-0.006)*9))
+        voiceMeterFrameRef.current=requestAnimationFrame(update)
+      }
+      update()
+    } catch {
+      // The orb still animates when Web Audio metering is unavailable.
+    }
+  }
+
+  const stopVoiceMode=()=>{setVoiceMode(false);setVoiceState('idle');if(mediaRecorder?.state==='recording')mediaRecorder.stop();stopVoiceMeter();if(currentAudioRef.current){currentAudioRef.current.pause();currentAudioRef.current=null};setSpeakingMessageIndex(null)}
 
   const startVoiceRecording = async () => {
     if(!voiceMode) return; setVoiceState('listening')
+    let voiceStream=null
     try {
-      const s=await navigator.mediaDevices.getUserMedia({audio:true})
+      voiceStream=await navigator.mediaDevices.getUserMedia({audio:true})
+      await startVoiceMeter(voiceStream)
       let m='audio/webm'; if(MediaRecorder.isTypeSupported('audio/webm;codecs=opus'))m='audio/webm;codecs=opus'; else if(MediaRecorder.isTypeSupported('audio/mp4'))m='audio/mp4'
-      const rec=new MediaRecorder(s,{mimeType:m}),chunks=[]
+      const rec=new MediaRecorder(voiceStream,{mimeType:m}),chunks=[]
       rec.ondataavailable=(e)=>{if(e.data.size>0)chunks.push(e.data)}
-      rec.onstop=async()=>{s.getTracks().forEach(t=>t.stop());if(!chunks.length){setVoiceState('idle');return};const b=new Blob(chunks,{type:m});if(b.size<1000){setError('Too short');setVoiceState('idle');return};await processVoiceInput(b)}
+      rec.onstop=async()=>{voiceStream.getTracks().forEach(t=>t.stop());stopVoiceMeter();if(!chunks.length){setVoiceState('idle');return};const b=new Blob(chunks,{type:m});if(b.size<1000){setError('Too short');setVoiceState('idle');return};await processVoiceInput(b)}
       rec.start(250); setMediaRecorder(rec)
-    } catch { setError('Mic denied'); setVoiceState('idle') }
+    } catch { voiceStream?.getTracks().forEach(t=>t.stop()); stopVoiceMeter(); setError('Mic denied'); setVoiceState('idle') }
   }
   const stopVoiceRecording=()=>{if(mediaRecorder?.state==='recording'){mediaRecorder.stop();setMediaRecorder(null)}}
 
@@ -548,18 +605,15 @@ export default function ChatPage({ user, onLogout }) {
             <button className="voice-x" onClick={stopVoiceMode}>✕</button>
           </div>
           <div className="voice-mid">
-            <div className={`voice-orb ${voiceState}`}
+            <button type="button" className={`voice-orb ${voiceState}`}
+              aria-label={voiceState==='listening'?'Listening. Release to send':'Hold to speak'}
               onMouseDown={voiceState==='idle'?startVoiceRecording:undefined}
               onMouseUp={voiceState==='listening'?stopVoiceRecording:undefined}
               onMouseLeave={voiceState==='listening'?stopVoiceRecording:undefined}
               onTouchStart={voiceState==='idle'?startVoiceRecording:undefined}
               onTouchEnd={voiceState==='listening'?stopVoiceRecording:undefined}>
-              <svg width="56" height="56" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.5">
-                {voiceState==='speaking'?<><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M15.54 8.46a5 5 0 0 1 0 7.07"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></>:
-                 voiceState==='thinking'?<><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></>:
-                 <><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></>}
-              </svg>
-            </div>
+              <NeuralOrb state={voiceState} audioLevelRef={voiceAudioLevelRef} />
+            </button>
             <div className="voice-state">{voiceState==='listening'?'Listening…':voiceState==='thinking'?'Thinking…':voiceState==='speaking'?'Speaking…':'Hold to speak'}</div>
             <div className="voice-hint">{voiceState==='idle'?'Press and hold':voiceState==='listening'?'Release to send':''}</div>
           </div>
