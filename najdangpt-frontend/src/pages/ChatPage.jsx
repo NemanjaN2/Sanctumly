@@ -404,7 +404,13 @@ export default function ChatPage({ user, onLogout }) {
                     onMouseLeave={() => setHoveredMsg(null)}>
                     {m.imagePreview && <img src={m.imagePreview} alt="" className="msg-preview" />}
                     {m.role === 'assistant' ? (
-                      <div className="md" dangerouslySetInnerHTML={{ __html: marked(m.content || '') }} />
+                      m.streaming && !m.content ? (
+                        <div className="thinking" role="status" aria-live="polite">
+                          <span>Thinking</span><span className="dots"><i/><i/><i/></span>
+                        </div>
+                      ) : (
+                        <div className="md" dangerouslySetInnerHTML={{ __html: marked(m.content || '') }} />
+                      )
                     ) : (
                       <div className="msg-body">{m.content}</div>
                     )}
@@ -418,9 +424,11 @@ export default function ChatPage({ user, onLogout }) {
                     )}
                   </div>
                 ))}
-                {loading && !messages.some(m => m.role==='assistant' && m.streaming && m.content) && (
+                {loading && !messages.some(m => m.role==='assistant' && m.streaming) && (
                   <div className="msg assistant">
-                    <div className="thinking"><span>Thinking</span><span className="dots"><i/><i/><i/></span></div>
+                    <div className="thinking" role="status" aria-live="polite">
+                      <span>Thinking</span><span className="dots"><i/><i/><i/></span>
+                    </div>
                   </div>
                 )}
               </div>
