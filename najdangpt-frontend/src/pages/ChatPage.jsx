@@ -4,6 +4,32 @@ import { sendMessage, streamMessage, clearChat, submitFeedback, getConversations
 import { uploadDocument } from '../api/upload'
 import { marked } from 'marked'
 
+// Render fenced code blocks with a dedicated copy control. The button reads
+// from its own <pre><code> element, so it never copies the surrounding reply.
+const escapeCodeHtml = (value = '') => String(value).replace(/[&<>\"']/g, (char) => ({
+  '&': '&amp;', '<': '&lt;', '>': '&gt;', '\"': '&quot;', "'": '&#39;',
+}[char]))
+
+marked.use({
+  renderer: {
+    code({ text, lang }) {
+      const candidate = String(lang || '').trim().split(/\s+/, 1)[0]
+      const language = /^[a-zA-Z0-9_+#.-]{1,24}$/.test(candidate) ? candidate : 'code'
+      const label = escapeCodeHtml(language.toUpperCase())
+      return `<section class=\"md-code-block\">
+        <div class=\"md-code-header\">
+          <span class=\"md-code-language\">${label}</span>
+          <button type=\"button\" class=\"md-code-copy\" data-copy-code aria-label=\"Copy code block\" title=\"Copy code\">
+            <svg viewBox=\"0 0 24 24\" aria-hidden=\"true\"><rect x=\"8\" y=\"8\" width=\"12\" height=\"12\" rx=\"2\"></rect><path d=\"M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3\"></path></svg>
+            <span class=\"md-code-copy-label\">Copy code</span>
+          </button>
+        </div>
+        <pre><code>${escapeCodeHtml(text)}</code></pre>
+      </section>\n`
+    },
+  },
+})
+
 export default function ChatPage({ user, onLogout }) {
   const [messages, setMessages] = useState([])
   const [input, setInput] = useState('')
@@ -193,6 +219,43 @@ export default function ChatPage({ user, onLogout }) {
 
   const handleFeedback = async (i,type) => { setMessageFeedback(p=>({...p,[i]:type})); try{await submitFeedback(messages[i].content,type,sessionId,user.username)}catch{} }
   const handleCopy = (c) => { navigator.clipboard.writeText(c); setSuccess('Copied') }
+
+  const handleMarkdownClick = async (event) => {
+    const button = event.target.closest?.('[data-copy-code]')
+    if (!button) return
+
+    const codeElement = button.closest('.md-code-block')?.querySelector('pre code')
+    if (!codeElement) return
+    const codeText = codeElement.textContent || ''
+    const label = button.querySelector('.md-code-copy-label')
+    const originalLabel = label?.textContent || 'Copy code'
+
+    try {
+      if (navigator.clipboard?.writeText && window.isSecureContext) {
+        await navigator.clipboard.writeText(codeText)
+      } else {
+        const temporaryInput = document.createElement('textarea')
+        temporaryInput.value = codeText
+        temporaryInput.setAttribute('readonly', '')
+        temporaryInput.style.position = 'fixed'
+        temporaryInput.style.opacity = '0'
+        document.body.appendChild(temporaryInput)
+        temporaryInput.select()
+        const copied = document.execCommand('copy')
+        temporaryInput.remove()
+        if (!copied) throw new Error('Clipboard copy was rejected')
+      }
+
+      if (label) label.textContent = 'Copied'
+      button.classList.add('is-copied')
+      window.setTimeout(() => {
+        if (label?.isConnected) label.textContent = originalLabel
+        if (button.isConnected) button.classList.remove('is-copied')
+      }, 1600)
+    } catch {
+      setError('Could not copy the code. Please select the snippet and copy it manually.')
+    }
+  }
 
   const handleReadAloud = async (i,c) => {
     if (currentAudioRef.current) { currentAudioRef.current.pause(); currentAudioRef.current=null }
@@ -409,14 +472,14 @@ export default function ChatPage({ user, onLogout }) {
                           <span>Thinking</span><span className="dots"><i/><i/><i/></span>
                         </div>
                       ) : (
-                        <div className="md" dangerouslySetInnerHTML={{ __html: marked(m.content || '') }} />
+                        <div className="md" onClick={handleMarkdownClick} dangerouslySetInnerHTML={{ __html: marked(m.content || '') }} />
                       )
                     ) : (
                       <div className="msg-body">{m.content}</div>
                     )}
                     {m.role==='assistant' && hoveredMsg===i && !m.streaming && (
                       <div className="msg-toolbar">
-                        <button onClick={() => handleCopy(m.content)}>Copy</button>
+                        <button onClick={() => handleCopy(m.content)}>Copy response</button>
                         <button className={speakingMessageIndex===i?'active':''} onClick={() => handleReadAloud(i,m.content)}>
                           {speakingMessageIndex===i?'Stop':'Read'}
                         </button>
