@@ -1,4 +1,4 @@
-const CACHE_NAME = 'sanctumly-violet-v3-code-copy';
+const CACHE_NAME = 'sanctumly-violet-v4-neural-voice';
 const urlsToCache = [
   '/',
   '/index.html',
