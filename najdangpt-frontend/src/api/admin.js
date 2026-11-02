@@ -1,63 +1,85 @@
+import { authHeaders } from './chat'
+
 const API_URL = import.meta.env.VITE_API_URL || 'https://sanctumly-production.up.railway.app'
+
+// Keep all administrative requests on the same server-issued Bearer session
+// used by chat and the Creator AI Control Center.
+function adminHeaders(includeJsonContentType = false) {
+  return {
+    Accept: 'application/json',
+    ...authHeaders(),
+    ...(includeJsonContentType ? { 'Content-Type': 'application/json' } : {}),
+  }
+}
+
+async function readResponse(response, fallbackMessage) {
+  const raw = await response.text()
+  let data = {}
+  try {
+    data = raw ? JSON.parse(raw) : {}
+  } catch {
+    data = { detail: raw.slice(0, 300) }
+  }
+
+  if (!response.ok) {
+    const error = new Error(data.detail || fallbackMessage || `Request failed (${response.status})`)
+    error.status = response.status
+    throw error
+  }
+
+  return data
+}
 
 export async function getSettings() {
   const response = await fetch(`${API_URL}/admin/settings`, {
     method: 'GET',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: adminHeaders(),
+    cache: 'no-store',
   })
-  if (!response.ok) {
-    throw new Error('Failed to fetch settings')
-  }
-  return response.json()
+  return readResponse(response, 'Failed to fetch settings')
 }
 
 export async function saveSetting(key, value) {
   const response = await fetch(`${API_URL}/admin/settings?key=${encodeURIComponent(key)}&value=${encodeURIComponent(value)}`, {
     method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
+    headers: adminHeaders(true),
   })
-  if (!response.ok) {
-    throw new Error('Failed to save setting')
-  }
-  return response.json()
+  return readResponse(response, 'Failed to save setting')
 }
 
 // ===== Therapist Knowledge Base =====
 
 export async function getTherapistKnowledge() {
-  const res = await fetch(`${API_URL}/admin/therapist-knowledge`)
-  if (!res.ok) throw new Error('Failed to load therapist knowledge')
-  return res.json()
+  const response = await fetch(`${API_URL}/admin/therapist-knowledge`, {
+    method: 'GET',
+    headers: adminHeaders(),
+    cache: 'no-store',
+  })
+  return readResponse(response, 'Failed to load therapist knowledge')
 }
 
 export async function createTherapistKnowledge(data) {
-  const res = await fetch(`${API_URL}/admin/therapist-knowledge`, {
+  const response = await fetch(`${API_URL}/admin/therapist-knowledge`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data)
+    headers: adminHeaders(true),
+    body: JSON.stringify(data),
   })
-  if (!res.ok) throw new Error('Failed to create entry')
-  return res.json()
+  return readResponse(response, 'Failed to create entry')
 }
 
 export async function updateTherapistKnowledge(id, data) {
-  const res = await fetch(`${API_URL}/admin/therapist-knowledge/${id}`, {
+  const response = await fetch(`${API_URL}/admin/therapist-knowledge/${encodeURIComponent(id)}`, {
     method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(data)
+    headers: adminHeaders(true),
+    body: JSON.stringify(data),
   })
-  if (!res.ok) throw new Error('Failed to update entry')
-  return res.json()
+  return readResponse(response, 'Failed to update entry')
 }
 
 export async function deleteTherapistKnowledge(id) {
-  const res = await fetch(`${API_URL}/admin/therapist-knowledge/${id}`, {
-    method: 'DELETE'
+  const response = await fetch(`${API_URL}/admin/therapist-knowledge/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    headers: adminHeaders(),
   })
-  if (!res.ok) throw new Error('Failed to delete entry')
-  return res.json()
+  return readResponse(response, 'Failed to delete entry')
 }
