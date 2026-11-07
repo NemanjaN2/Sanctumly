@@ -1,3 +1,0 @@
-User-agent: *
-Allow: /
-Sitemap: https://sanctumly.space/sitemap.xml
