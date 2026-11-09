@@ -116,7 +116,7 @@ export default function AIControlCenter({ user, onLogout }) {
       overrideModeTouched.current = false
       setNotice(overrideMode === 'groq'
         ? `GPT-OSS is now forced globally for ${duration} minutes. Automatic expiry is enabled.`
-        : 'Automatic routing restored. Qwen is eligible as the primary model again.')
+        : 'Automatic routing restored. Gemma is eligible as the primary model again.')
       await refresh(true)
     } catch (err) {
       setError(err.message || 'Could not update provider routing.')
@@ -188,7 +188,7 @@ export default function AIControlCenter({ user, onLogout }) {
             <section className="aic-provider-grid">
               <article className="aic-panel aic-provider-card aic-provider-card--primary">
                 <div className="aic-provider-top"><div><div className="aic-kicker">Primary inference</div><h2>Cloudflare Workers AI</h2></div><StatusPill value={cloudflare.health} /></div>
-                <div className="aic-model-name">{cloudflare.model || 'Qwen3-30B-A3B-FP8'}</div>
+                <div className="aic-model-name">{cloudflare.model || '@cf/google/gemma-4-26b-a4b-it'}</div>
                 <div className="aic-quota-summary"><div><span className="aic-label">Estimated remaining</span><strong>{number(remaining, 2)}</strong><small>Neurons</small></div><div className="aic-quota-used"><span className="aic-label">Used</span><strong>{number(used, 2)}</strong><small>+ {number(reserved, 2)} reserved</small></div></div>
                 <div className="aic-quota-track"><div style={{ width: `${quotaPercent}%` }} /></div>
                 <div className="aic-quota-foot"><span>{number(used + reserved, 2)} / {number(budget, 0)} Neurons</span><span>{number(quotaPercent, 1)}% used</span></div>
@@ -200,7 +200,7 @@ export default function AIControlCenter({ user, onLogout }) {
               <article className="aic-panel aic-provider-card">
                 <div className="aic-provider-top"><div><div className="aic-kicker">Reasoning and fallback</div><h2>Groq</h2></div><StatusPill value={groq.health} /></div>
                 <div className="aic-model-name">{groq.model || 'openai/gpt-oss-120b'}</div>
-                <p className="aic-provider-description">Used for research synthesis, high-complexity requests, manual override and Qwen failover.</p>
+                <p className="aic-provider-description">Used for research synthesis, high-complexity requests, manual override and Gemma failover.</p>
                 <div className="aic-provider-facts"><div><span>Credentials</span><strong>{groq.configured ? 'Configured' : 'Missing'}</strong></div><div><span>Last recorded request</span><strong>{dateTime(groq.last_event_at)}</strong></div></div>
                 <p className="aic-footnote">Status is inferred from the latest recorded Groq request, not an active provider health probe. Provider organization limits still apply.</p>
               </article>
@@ -218,7 +218,7 @@ export default function AIControlCenter({ user, onLogout }) {
                 <div className="aic-kicker">Manual routing control</div>
                 <h2>Provider override</h2>
                 <p>Temporarily force GPT-OSS for all Sanctumly text requests, or restore automatic routing. The override is global and expires automatically.</p>
-                <div className="aic-override-state"><StatusPill value={activeOverride ? 'degraded' : 'available'} /><span>{activeOverride ? `GPT-OSS forced until ${dateTime(data.override.expires_at)}` : 'Automatic routing active · Qwen remains primary'}</span></div>
+                <div className="aic-override-state"><StatusPill value={activeOverride ? 'degraded' : 'available'} /><span>{activeOverride ? `GPT-OSS forced until ${dateTime(data.override.expires_at)}` : 'Automatic routing active · Gemma remains primary'}</span></div>
               </div>
               <div className="aic-override-controls">
                 <label><span>Routing mode</span><select value={overrideMode} onChange={event => { overrideModeTouched.current = true; setOverrideMode(event.target.value) }}><option value="auto">Automatic (recommended)</option><option value="groq">Force GPT-OSS-120B</option></select></label>
@@ -233,7 +233,7 @@ export default function AIControlCenter({ user, onLogout }) {
             <section className="aic-metrics-grid aic-metrics-grid--secondary">
               <MetricCard label="Text requests today" value={number(metrics.text_requests_today)} detail="UTC day · recorded completions" />
               <MetricCard label="Web searches today" value={number(metrics.web_searches_today)} detail="Aggregated across accounts" />
-              <MetricCard label="Provider allocation" value="Global" detail="Cloudflare ledger is not per-user" />
+              <MetricCard label="Provider allocation" value="Global" detail="Cloudflare ledger is not per user" />
               <MetricCard label="Automatic refresh" value="30 sec" detail={data.generated_at ? `Last updated ${time(data.generated_at)}` : '—'} />
             </section>
 
